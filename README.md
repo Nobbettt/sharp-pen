@@ -24,7 +24,7 @@ the right, every difference clickable. Accept a change with one click; when
 there is more than one reasonable phrasing, pick from a dropdown. Nothing is
 applied until you say so.
 
-https://github.com/user-attachments/assets/b6a5560d-e13b-4930-a54c-0fd3008aa696
+https://github.com/user-attachments/assets/7fab5412-2428-4cd1-8e86-4208745bcfe7
 
 It is packaged as an agent skill, a folder with instructions and two small
 Python scripts, so it works in any client that reads the skill format: Claude
