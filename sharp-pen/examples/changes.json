@@ -1,0 +1,21 @@
+{
+  "title": "Example draft",
+  "level1": [
+    {"from": "Planing", "options": ["Planning"], "note": "Typo (planing = shaving wood)."},
+    {"from": "planing", "options": ["planning"], "note": "Typo."},
+    {"from": "or what you want to build", "options": ["of what you want to build"], "note": "Wrong preposition."},
+    {"from": "a time well invested", "options": ["time well invested"], "note": "'time well invested' is uncountable here."},
+    {"from": "it is i highly", "options": ["it is, I highly"], "note": "Capitalise, and the clause needs a comma."},
+    {"from": "its no GTA6", "options": ["it's no GTA 6", "it's no GTA VI"], "note": "Contraction and product-name spacing."}
+  ],
+  "level2": [
+    {"from": "Have to state that I'm no game designer and have little experience with game development.",
+     "options": ["I should say up front that I am no game designer and have little experience with game development.",
+                 "For context: I am not a game designer, and I have barely touched game development."],
+     "note": "Missing subject — reads as a fragment."},
+    {"from": "Developing a game like this, even though its no GTA6, would've surely taken me months and months.",
+     "options": ["Building a game like this by hand — no GTA 6, granted — would have taken me months.",
+                 "On my own it would have taken months, even for something this far from GTA 6."],
+     "note": "The concession splits subject from verb and buries the point."}
+  ]
+}

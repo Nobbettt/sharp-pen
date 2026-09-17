@@ -1,0 +1,678 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>sharp-pen review</title>
+<style>
+  :root{
+    --bg:#f7f6f3; --panel:#ffffff; --ink:#1d1c1a; --muted:#6b6862;
+    --line:#e3e0da; --accent:#2f6f4e;
+    --del-bg:#fdeceb; --del-ink:#8c2f28; --del-line:#e3a9a3;
+    --add-bg:#e8f5ec; --add-ink:#1f5c3d; --add-line:#a4d3b6;
+    --ok-bg:#eef1ee; --ok-ink:#5d6b62;
+    --chip:#efece6;
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --bg:#17181a; --panel:#1f2124; --ink:#e9e7e3; --muted:#9b978f;
+      --line:#32353a; --accent:#7fc9a3;
+      --del-bg:#3a2320; --del-ink:#f0a9a1; --del-line:#6b3b35;
+      --add-bg:#1d3529; --add-ink:#9fdcb8; --add-line:#3c6b51;
+      --ok-bg:#26292c; --ok-ink:#8d9a92;
+      --chip:#2a2d31;
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#17181a; --panel:#1f2124; --ink:#e9e7e3; --muted:#9b978f;
+    --line:#32353a; --accent:#7fc9a3;
+    --del-bg:#3a2320; --del-ink:#f0a9a1; --del-line:#6b3b35;
+    --add-bg:#1d3529; --add-ink:#9fdcb8; --add-line:#3c6b51;
+    --ok-bg:#26292c; --ok-ink:#8d9a92;
+    --chip:#2a2d31;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%; overflow:hidden}
+  body{
+    margin:0; background:var(--bg); color:var(--ink);
+    display:flex; flex-direction:column;
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    font-size:15px; line-height:1.5;
+  }
+  header{
+    flex:0 0 auto; z-index:20; background:var(--bg);
+    border-bottom:1px solid var(--line); padding:14px 20px 12px;
+  }
+  .titlerow{display:flex; flex-wrap:wrap; gap:12px; align-items:baseline; justify-content:space-between}
+  h1{font-size:16px; margin:0; font-weight:600; letter-spacing:.01em}
+  .sub{color:var(--muted); font-size:12.5px}
+  .lvlwrap{display:flex; align-items:center; gap:12px; flex-wrap:wrap}
+  .doc.rendered p.ind{padding-left:14px; border-left:2px solid var(--line)}
+  .seg{display:inline-flex; background:var(--chip); border-radius:8px; padding:2px}
+  .seg .lvl,.seg .vw{border:0; background:transparent; color:var(--muted); font-size:12.5px; padding:4px 10px; border-radius:6px}
+  .seg .lvl.on,.seg .vw.on{background:var(--panel); color:var(--ink); box-shadow:0 1px 2px rgba(0,0,0,.12)}
+  .seg .vw{display:inline-flex; align-items:center; justify-content:center; padding:4px 9px}
+  .seg .vw svg{width:15px; height:15px; display:block}
+  #viewseg{margin-left:auto}
+  .titlerow{position:relative}
+  .iconbtn{
+    order:2; margin-left:auto; align-self:flex-start;
+    display:inline-flex; align-items:center; justify-content:center;
+    width:30px; height:30px; padding:0; border-radius:8px; color:var(--muted);
+  }
+  .iconbtn:hover{color:var(--ink)}
+  .iconbtn svg{width:16px; height:16px; display:block}
+  .iconbtn .i-sun{display:none}
+  :root[data-theme="dark"] .iconbtn .i-sun{display:block}
+  :root[data-theme="dark"] .iconbtn .i-moon{display:none}
+  .statusrow{display:flex; flex-wrap:wrap; gap:12px; align-items:baseline; justify-content:space-between; margin-top:6px}
+  .statusrow .sub{text-align:right}
+  .tools{display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-top:10px}
+  button{
+    font:inherit; font-size:13px; padding:5px 11px; border-radius:7px;
+    border:1px solid var(--line); background:var(--panel); color:var(--ink);
+    cursor:pointer;
+  }
+  button:hover{border-color:var(--muted)}
+  button.primary{background:var(--accent); border-color:var(--accent); color:#fff}
+  .count{font-size:12.5px; color:var(--muted); white-space:nowrap}
+  .bar{height:4px; background:var(--chip); border-radius:99px; overflow:hidden; margin-top:10px}
+  .bar > i{display:block; height:100%; width:0; background:var(--accent); transition:width .2s ease}
+
+  main{
+    flex:1 1 auto; min-height:0;
+    display:grid; grid-template-columns:1fr 1fr; gap:14px; padding:14px 20px 10px;
+    align-items:stretch;
+  }
+  .pane{
+    background:var(--panel); border:1px solid var(--line); border-radius:10px; overflow:hidden;
+    display:flex; flex-direction:column; min-height:0;
+  }
+  .pane > h2{
+    margin:0; padding:7px 10px 7px 14px;
+    display:flex; align-items:center; justify-content:space-between; gap:10px; font-size:12px; font-weight:600; letter-spacing:.06em;
+    text-transform:uppercase; color:var(--muted); border-bottom:1px solid var(--line);
+    position:sticky; top:0; background:var(--panel); z-index:2;
+  }
+  .doc{
+    padding:0 18px 28px; white-space:pre-wrap; overflow-wrap:anywhere;
+    font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace;
+    font-size:13.2px; line-height:1.75; flex:1 1 auto; min-height:0; overflow:auto;
+  }
+  .doc::before{content:''; display:block; height:16px}
+  .paneacts{display:inline-flex; gap:2px; margin-left:auto}
+  .iconbtn.sm{width:26px; height:26px; border:1px solid transparent; background:transparent}
+  .iconbtn.sm:hover{border-color:var(--line); color:var(--ink)}
+  .iconbtn.sm .i-done{display:none; color:var(--accent)}
+  .iconbtn.sm.done .i-done{display:block}
+  .iconbtn.sm.done .i-act{display:none}
+  .iconbtn.sm.fail{color:var(--del-ink)}
+  #menu .head{padding:8px 12px 6px; font-size:11px; letter-spacing:.06em; text-transform:uppercase; color:var(--muted)}
+  #menu .opt .sub{display:block; font-size:11.5px; color:var(--muted); margin-top:1px; font-family:inherit}
+  .ch{border-radius:4px; padding:0 2px; cursor:pointer; -webkit-box-decoration-break:clone; box-decoration-break:clone}
+  .left .ch.pending{background:var(--del-bg); color:var(--del-ink); box-shadow:inset 0 -1px 0 var(--del-line)}
+  .right .ch.pending{background:var(--add-bg); color:var(--add-ink); box-shadow:inset 0 -1px 0 var(--add-line)}
+  .ch.accepted{background:var(--ok-bg); color:var(--ok-ink)}
+  .hot{outline:2px solid var(--accent); outline-offset:1px; border-radius:4px}
+  main.inline{grid-template-columns:1fr}
+  main.split #inlinePane{display:none}
+  main.inline .pane:not(.inlinepane){display:none}
+  .doc.inline .del{
+    background:var(--del-bg); color:var(--del-ink);
+    text-decoration:line-through; text-decoration-thickness:1px;
+  }
+  .doc.inline .ins{background:var(--add-bg); color:var(--add-ink)}
+  .doc.inline .ch.accepted{background:var(--ok-bg); color:var(--ok-ink); text-decoration:none}
+  .chpair{border-radius:4px}
+  .ch.focus{outline:2px dashed var(--accent); outline-offset:2px}
+  .caret{font-size:.7em; opacity:.6; margin-left:2px; vertical-align:middle}
+
+  #tip{
+    position:fixed; z-index:50; max-width:280px; pointer-events:none; opacity:0;
+    transition:opacity .12s ease;
+    background:var(--ink); color:var(--bg); font-size:12.5px; line-height:1.4;
+    padding:6px 9px; border-radius:7px;
+  }
+  #tip.on{opacity:1}
+
+  #menu{
+    position:fixed; z-index:60; display:none; min-width:250px; max-width:480px;
+    background:var(--panel); border:1px solid var(--line); border-radius:10px;
+    box-shadow:0 10px 30px rgba(0,0,0,.18); overflow:auto; max-height:70vh;
+  }
+  #menu.on{display:block}
+  #menu .note{padding:9px 12px; font-size:12.5px; color:var(--muted); border-bottom:1px solid var(--line)}
+  #menu .opt{
+    display:flex; gap:8px; align-items:flex-start; width:100%; text-align:left;
+    padding:8px 12px; font-size:13px; border:0; border-radius:0; background:transparent;
+    cursor:pointer; line-height:1.4;
+  }
+  #menu .opt:hover{background:var(--chip)}
+  #menu .opt .tick{width:12px; flex:0 0 12px; color:var(--accent)}
+  #menu .opt .txt{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; font-size:12.5px}
+  #menu .opt.orig .txt{color:var(--muted)}
+  #menu .opt .tag{margin-left:auto; font-size:10.5px; color:var(--muted); letter-spacing:.04em; text-transform:uppercase}
+  footer{flex:0 0 auto; padding:8px 20px 12px; color:var(--muted); font-size:12.5px}
+  @media (max-width:880px){
+    html,body{height:auto; overflow:auto}
+    main{grid-template-columns:1fr; padding-bottom:20px}
+    .doc{max-height:70vh}
+  }
+
+  .doc.rendered{
+    white-space:normal;
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    font-size:14.6px; line-height:1.72;
+  }
+  .doc.rendered h1,.doc.rendered h2,.doc.rendered h3{
+    font-size:17px; font-weight:650; letter-spacing:.01em;
+    position:sticky; top:0; z-index:3;
+    background:var(--panel);
+    margin:0 -18px .7em; padding:10px 18px;
+    border-bottom:1px solid var(--line);
+  }
+  .doc.rendered h1 + *,.doc.rendered h2 + *,.doc.rendered h3 + *{margin-top:0}
+  .doc.rendered > * + h1,.doc.rendered > * + h2,.doc.rendered > * + h3{margin-top:.6em}
+  .doc.rendered p{margin:0 0 1em}
+  .doc.rendered ul,.doc.rendered ol{margin:0 0 1em; padding-left:1.3em}
+  .doc.rendered li{margin:.3em 0}
+  .doc.rendered li > p{margin:.4em 0}
+  .doc.rendered strong{font-weight:650}
+  .doc.rendered a{color:var(--accent)}
+  .doc.rendered code{
+    font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; font-size:.88em;
+    background:var(--chip); padding:1px 4px; border-radius:4px;
+  }
+  .doc.rendered pre{background:var(--chip); padding:10px 12px; border-radius:8px; white-space:pre-wrap; overflow:auto}
+  .doc.rendered pre code{background:none; padding:0}
+  .doc.rendered hr{border:0; border-top:1px solid var(--line); margin:1.5em 0}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="titlerow">
+    <button id="theme" class="iconbtn" title="Switch between light and dark" aria-label="Switch between light and dark">
+      <svg class="i-moon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round">
+        <path d="M13.2 9.6A5.6 5.6 0 0 1 6.4 2.8a5.6 5.6 0 1 0 6.8 6.8z"/>
+      </svg>
+      <svg class="i-sun" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round">
+        <circle cx="8" cy="8" r="3.1"/>
+        <path d="M8 1.3v1.4M8 13.3v1.4M1.3 8h1.4M13.3 8h1.4M3.3 3.3l1 1M11.7 11.7l1 1M12.7 3.3l-1 1M4.3 11.7l-1 1"/>
+      </svg>
+    </button>
+    <div>
+      <div class="lvlwrap">
+        <h1 id="h1">Level 1 — spelling &amp; grammar</h1>
+        <div class="seg">
+          <button class="lvl on" data-level="1">Level 1</button>
+          <button class="lvl" data-level="2">Level 2</button>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="tools">
+    <button class="primary" id="next">Next change</button>
+    <button id="mode">Markdown source</button>
+    <div class="seg" id="viewseg">
+      <button class="vw on" data-view="split" title="Side by side" aria-label="Side by side">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round">
+          <rect x="1.4" y="2.6" width="13.2" height="10.8" rx="1.6"/>
+          <line x1="8" y1="2.6" x2="8" y2="13.4"/>
+        </svg>
+      </button>
+      <button class="vw" data-view="inline" title="Inline" aria-label="Inline">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round">
+          <rect x="1.4" y="2.6" width="13.2" height="10.8" rx="1.6"/>
+          <line x1="4.1" y1="6.3" x2="11.9" y2="6.3"/>
+          <line x1="4.1" y1="9.7" x2="9.4" y2="9.7"/>
+        </svg>
+      </button>
+    </div>
+    <button id="acceptAll">Accept all (first option)</button>
+    <button id="reset">Reset</button>
+  </div>
+  <div class="bar"><i id="fill"></i></div>
+  <div class="statusrow">
+    <div class="count" id="count"></div>
+    <div class="sub">Click a highlight to accept it. Ones marked &#9662; have alternatives — click to pick.</div>
+  </div>
+</header>
+
+<main class="split">
+  <section class="pane">
+    <h2>Your draft <span class="paneacts"><button class="iconbtn sm copybtn" data-side="left" title="Copy" aria-label="Copy"><svg class="i-act" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"><rect x="5.4" y="2.2" width="8.2" height="10" rx="1.4"/><path d="M10.6 13.8H3.9a1.5 1.5 0 0 1-1.5-1.5V4.6"/></svg><svg class="i-done" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="m3.2 8.4 3.1 3.1 6.5-6.9"/></svg></button><button class="iconbtn sm dlbtn" data-side="left" title="Download .md" aria-label="Download markdown"><svg class="i-act" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2.4v7.2M5.1 6.9 8 9.8l2.9-2.9"/><path d="M2.6 11.4v1.2a1.4 1.4 0 0 0 1.4 1.4h8a1.4 1.4 0 0 0 1.4-1.4v-1.2"/></svg><svg class="i-done" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="m3.2 8.4 3.1 3.1 6.5-6.9"/></svg></button></span></h2>
+    <div class="doc left" id="leftDoc"></div>
+  </section>
+  <section class="pane">
+    <h2>Suggested <span class="paneacts"><button class="iconbtn sm copybtn" data-side="right" title="Copy" aria-label="Copy"><svg class="i-act" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"><rect x="5.4" y="2.2" width="8.2" height="10" rx="1.4"/><path d="M10.6 13.8H3.9a1.5 1.5 0 0 1-1.5-1.5V4.6"/></svg><svg class="i-done" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="m3.2 8.4 3.1 3.1 6.5-6.9"/></svg></button><button class="iconbtn sm dlbtn" data-side="right" title="Download .md" aria-label="Download markdown"><svg class="i-act" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2.4v7.2M5.1 6.9 8 9.8l2.9-2.9"/><path d="M2.6 11.4v1.2a1.4 1.4 0 0 0 1.4 1.4h8a1.4 1.4 0 0 0 1.4-1.4v-1.2"/></svg><svg class="i-done" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="m3.2 8.4 3.1 3.1 6.5-6.9"/></svg></button></span></h2>
+    <div class="doc right" id="rightDoc"></div>
+  </section>
+  <section class="pane inlinepane" id="inlinePane">
+    <h2>Review <span class="paneacts"><button class="iconbtn sm copybtn" data-side="left" title="Copy" aria-label="Copy"><svg class="i-act" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"><rect x="5.4" y="2.2" width="8.2" height="10" rx="1.4"/><path d="M10.6 13.8H3.9a1.5 1.5 0 0 1-1.5-1.5V4.6"/></svg><svg class="i-done" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="m3.2 8.4 3.1 3.1 6.5-6.9"/></svg></button><button class="iconbtn sm dlbtn" data-side="left" title="Download .md" aria-label="Download markdown"><svg class="i-act" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2.4v7.2M5.1 6.9 8 9.8l2.9-2.9"/><path d="M2.6 11.4v1.2a1.4 1.4 0 0 0 1.4 1.4h8a1.4 1.4 0 0 0 1.4-1.4v-1.2"/></svg><svg class="i-done" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="m3.2 8.4 3.1 3.1 6.5-6.9"/></svg></button></span></h2>
+    <div class="doc inline" id="inlineDoc"></div>
+  </section>
+</main>
+
+<footer id="foot"></footer>
+
+<div id="tip"></div>
+<div id="menu"></div>
+
+<script>
+const DATA = {"title": "Example draft", "source": "## ⟦c1⟧\n\nAll starts with the ⟦c2⟧ and requirements engineering ⟦c3⟧. It is ⟦c4⟧. If you do not know what ⟦c5⟧ recommend reading about it.\n\nHave to state that I'm no game designer and have little experience with game development. Developing a game like this, even though ⟦c6⟧, would've surely taken me months and months.\n", "level1": {"c1": {"from": "Planing", "opts": ["Planning"], "note": "Typo (planing = shaving wood)."}, "c2": {"from": "planing", "opts": ["planning"], "note": "Typo."}, "c3": {"from": "or what you want to build", "opts": ["of what you want to build"], "note": "Wrong preposition."}, "c4": {"from": "a time well invested", "opts": ["time well invested"], "note": "'time well invested' is uncountable here."}, "c5": {"from": "it is i highly", "opts": ["it is, I highly"], "note": "Capitalise, and the clause needs a comma."}, "c6": {"from": "its no GTA6", "opts": ["it's no GTA 6", "it's no GTA VI"], "note": "Contraction and product-name spacing."}}, "level2": {"s1": {"raw": "Have to state that I'm no game designer and have little experience with game development.", "opts": ["I should say up front that I am no game designer and have little experience with game development.", "For context: I am not a game designer, and I have barely touched game development."], "note": "Missing subject — reads as a fragment."}, "s2": {"raw": "Developing a game like this, even though ⟦c6⟧, would've surely taken me months and months.", "opts": ["Building a game like this by hand — no GTA 6, granted — would have taken me months.", "On my own it would have taken months, even for something this far from GTA 6."], "note": "The concession splits subject from verb and buries the point."}}};
+const CHANGES = DATA.level1;
+const LEVEL2  = DATA.level2;
+const RAW     = DATA.source;
+document.title = DATA.title + ' \u2014 sharp-pen';
+
+// ---------- minimal markdown renderer (offline, no dependencies) ----------
+function esc(s){ return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function inlineMd(s){
+  return esc(s)
+    .replace(/`([^`]+)`/g, '<code>$1</code>')
+    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+    .replace(/(^|[^*])\*([^*\n]+)\*/g, '$1<em>$2</em>')
+    .replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+}
+function mdLite(src){
+  let html = '';
+  src.replace(/\r\n/g, '\n').split(/\n{2,}/).forEach(block => {
+    const lines = block.split('\n').filter(l => l.trim() !== '');
+    if(!lines.length) return;
+    const h = lines[0].match(/^\s*(#{1,6})\s+(.*)$/);
+    if(h && lines.length === 1){
+      const n = h[1].length;
+      html += '<h' + n + '>' + inlineMd(h[2]) + '</h' + n + '>';
+      return;
+    }
+    if(lines.length === 1 && /^\s*([-*_])\1{2,}\s*$/.test(lines[0])){ html += '<hr>'; return; }
+    if(lines.every(l => /^\s*[-*+](\s+|\s*$)/.test(l))){
+      html += '<ul>' + lines.map(l => '<li>' + inlineMd(l.replace(/^\s*[-*+]\s*/, '')) + '</li>').join('') + '</ul>';
+      return;
+    }
+    const ind = /^\s{2,}/.test(lines[0]) ? ' class="ind"' : '';
+    html += '<p' + ind + '>' + lines.map(l => inlineMd(l.trim())).join(' ') + '</p>';
+  });
+  return html;
+}
+
+// ---------- structure ----------
+const SEGS = (() => {
+  const found = Object.keys(LEVEL2)
+    .map(id => ({id, i: RAW.indexOf(LEVEL2[id].raw)}))
+    .filter(f => f.i >= 0)
+    .sort((a,b) => a.i - b.i);
+  const segs = []; let pos = 0;
+  found.forEach(f => {
+    if(f.i < pos) return;
+    if(f.i > pos) segs.push({t:'text', s:RAW.slice(pos, f.i)});
+    segs.push({t:'l2', id:f.id});
+    pos = f.i + LEVEL2[f.id].raw.length;
+  });
+  segs.push({t:'text', s:RAW.slice(pos)});
+  return segs;
+})();
+
+const state = {};   // level 1: id -> null | option index
+const state2 = {};  // level 2
+Object.keys(CHANGES).forEach(k => state[k] = null);
+Object.keys(LEVEL2).forEach(k => state2[k] = null);
+
+let LEVEL = 1;
+const items = id => id.charAt(0) === 'c' ? CHANGES[id] : LEVEL2[id];
+const pickOf = id => id.charAt(0) === 'c' ? state[id] : state2[id];
+function setPick(id, v){ if(id.charAt(0) === 'c') state[id] = v; else state2[id] = v; }
+
+function draftText(str){ // resolve level-1 tokens to the current working draft
+  return str.replace(/⟦(c\d+)⟧/g, (m, id) => state[id] !== null ? CHANGES[id].opts[state[id]] : CHANGES[id].from);
+}
+function origOf(id){
+  if(id.charAt(0) === 'c') return CHANGES[id].from;
+  return draftText(LEVEL2[id].raw);
+}
+function textOf(id, side){
+  const p = pickOf(id);
+  if(p !== null) return items(id).opts[p];
+  return side === 'left' ? origOf(id) : items(id).opts[0];
+}
+
+function sourceFor(){ // markdown with @@id@@ sentinels for the active level
+  let out = '';
+  SEGS.forEach(seg => {
+    if(seg.t === 'text'){
+      out += LEVEL === 1 ? seg.s.replace(/⟦(c\d+)⟧/g, (m, id) => '@@' + id + '@@') : draftText(seg.s);
+      return;
+    }
+    const it = LEVEL2[seg.id], p = state2[seg.id];
+    if(LEVEL === 2){ out += '@@' + seg.id + '@@'; return; }
+    out += p !== null ? it.opts[p] : it.raw.replace(/⟦(c\d+)⟧/g, (m, id) => '@@' + id + '@@');
+  });
+  return out;
+}
+function textFor(side){
+  return sourceFor().replace(/@@(c\d+|s\d+)@@/g, (m, id) => textOf(id, side));
+}
+
+// ---------- rendering ----------
+const MD_OK = true;
+let MODE = MD_OK ? 'rendered' : 'source';
+const leftDoc = document.getElementById('leftDoc');
+const rightDoc = document.getElementById('rightDoc');
+const spans = {left:{}, right:{}, inline:{}};
+const inlineDoc = document.getElementById('inlineDoc');
+const mainEl = document.querySelector('main');
+let VIEW = 'split';
+const anyEl = id => spans.left[id] || spans.inline[id];
+
+function caret(){
+  const c = document.createElement('span');
+  c.className = 'caret';
+  c.textContent = '\u25BE';
+  return c;
+}
+function makeSpan(id, side){
+  const p = pickOf(id), it = items(id);
+  if(side !== 'inline'){
+    const s = document.createElement('span');
+    s.className = 'ch ' + (p !== null ? 'accepted' : 'pending');
+    s.dataset.id = id;
+    s.appendChild(document.createTextNode(textOf(id, side)));
+    if(side === 'right' && it.opts.length > 1) s.appendChild(caret());
+    spans[side][id] = s;
+    return s;
+  }
+  const wrap = document.createElement('span');
+  wrap.className = 'chpair';
+  if(p !== null){
+    const a = document.createElement('span');
+    a.className = 'ch accepted';
+    a.dataset.id = id;
+    a.appendChild(document.createTextNode(it.opts[p]));
+    if(it.opts.length > 1) a.appendChild(caret());
+    wrap.appendChild(a);
+  } else {
+    const d = document.createElement('span');
+    d.className = 'ch pending del';
+    d.dataset.id = id;
+    d.textContent = origOf(id);
+    const a = document.createElement('span');
+    a.className = 'ch pending ins';
+    a.dataset.id = id;
+    a.appendChild(document.createTextNode(it.opts[0]));
+    if(it.opts.length > 1) a.appendChild(caret());
+    wrap.appendChild(d);
+    wrap.appendChild(document.createTextNode(' '));
+    wrap.appendChild(a);
+  }
+  spans.inline[id] = wrap;
+  return wrap;
+}
+
+function buildPane(container, side, src){
+  if(MODE === 'rendered'){
+    container.innerHTML = mdLite(src);
+  } else {
+    container.textContent = src;
+  }
+  const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT, null);
+  const hits = [];
+  while(walker.nextNode()){
+    if(/@@(c|s)\d+@@/.test(walker.currentNode.nodeValue)) hits.push(walker.currentNode);
+  }
+  hits.forEach(node => {
+    const frag = document.createDocumentFragment();
+    node.nodeValue.split(/@@(c\d+|s\d+)@@/).forEach((b, i) => {
+      if(i % 2 === 0){ if(b) frag.appendChild(document.createTextNode(b)); }
+      else frag.appendChild(makeSpan(b, side));
+    });
+    node.parentNode.replaceChild(frag, node);
+  });
+}
+
+function render(){
+  const sl = leftDoc.scrollTop, sr = rightDoc.scrollTop, si = inlineDoc.scrollTop;
+  const src = sourceFor();
+  spans.left = {}; spans.right = {}; spans.inline = {};
+  mainEl.classList.toggle('inline', VIEW === 'inline');
+  mainEl.classList.toggle('split', VIEW === 'split');
+  const panes = VIEW === 'split' ? [[leftDoc,'left'],[rightDoc,'right']] : [[inlineDoc,'inline']];
+  panes.forEach(pair => {
+    pair[0].classList.toggle('rendered', MODE === 'rendered');
+    buildPane(pair[0], pair[1], src);
+  });
+  leftDoc.scrollTop = sl; rightDoc.scrollTop = sr; inlineDoc.scrollTop = si;
+  document.querySelectorAll('.vw').forEach(b => b.classList.toggle('on', b.dataset.view === VIEW));
+
+  const store = LEVEL === 1 ? state : state2;
+  const keys = Object.keys(store);
+  const done = keys.filter(k => store[k] !== null).length;
+  document.getElementById('count').textContent =
+    done + ' of ' + keys.length + ' accepted  ·  Level ' + LEVEL;
+  document.getElementById('fill').style.width = (done / keys.length * 100) + '%';
+  document.getElementById('h1').textContent =
+    LEVEL === 1 ? 'Level 1 — spelling & grammar' : 'Level 2 — sentence construction';
+  document.getElementById('foot').textContent = LEVEL === 1
+    ? 'Level 1: spelling, typos, agreement and clear grammar slips only — no rewriting. ' + (keys.length - done) + ' still open.'
+    : 'Level 2: sentence construction — accepting one of these replaces the whole sentence, including any Level 1 fixes inside it. ' + (keys.length - done) + ' still open.';
+  document.querySelectorAll('.lvl').forEach(b => b.classList.toggle('on', +b.dataset.level === LEVEL));
+}
+
+// ---------- interaction ----------
+const tip = document.getElementById('tip');
+const menu = document.getElementById('menu');
+function hideMenu(){ menu.classList.remove('on'); menu.dataset.id = ''; }
+
+function placeMenu(anchor, alignRight){
+  const b = anchor.getBoundingClientRect();
+  const mh = menu.offsetHeight, mw = menu.offsetWidth;
+  let top = b.bottom + 6;
+  if(top + mh > window.innerHeight - 8) top = Math.max(8, b.top - mh - 6);
+  menu.style.top = top + 'px';
+  const left = alignRight ? b.right - mw : b.left;
+  menu.style.left = Math.min(Math.max(8, left), window.innerWidth - mw - 8) + 'px';
+}
+
+function openMenu(id, anchor){
+  const c = items(id);
+  tip.classList.remove('on');
+  menu.textContent = '';
+  menu.dataset.id = id;
+  const n = document.createElement('div');
+  n.className = 'note';
+  n.textContent = c.note;
+  menu.appendChild(n);
+  c.opts.forEach((o, i) => {
+    const b = document.createElement('button');
+    b.className = 'opt';
+    b.innerHTML = '<span class="tick">' + (pickOf(id) === i ? '\u2713' : '') + '</span><span class="txt"></span>' +
+                  (i === 0 && c.opts.length > 1 ? '<span class="tag">suggested</span>' : '');
+    b.querySelector('.txt').textContent = o;
+    b.onclick = ev => { ev.stopPropagation(); setPick(id, i); render(); hideMenu(); };
+    menu.appendChild(b);
+  });
+  const keep = document.createElement('button');
+  keep.className = 'opt orig';
+  keep.innerHTML = '<span class="tick">' + (pickOf(id) === null ? '\u2713' : '') + '</span><span class="txt"></span><span class="tag">keep</span>';
+  keep.querySelector('.txt').textContent = origOf(id);
+  keep.onclick = ev => { ev.stopPropagation(); setPick(id, null); render(); hideMenu(); };
+  menu.appendChild(keep);
+  menu.classList.add('on');
+  placeMenu(anchor, false);
+}
+
+function onEnter(e){
+  const el = e.target.closest('.ch'); if(!el) return;
+  const id = el.dataset.id;
+  ['left','right','inline'].forEach(k => { if(spans[k][id]) spans[k][id].classList.add('hot'); });
+  if(menu.classList.contains('on')) return;
+  const c = items(id);
+  tip.textContent = c.note + (c.opts.length > 1 ? '  (' + c.opts.length + ' options)' : '');
+  const b = el.getBoundingClientRect();
+  tip.style.left = Math.min(Math.max(8, b.left), window.innerWidth - 296) + 'px';
+  tip.style.top = (b.top > 70 ? b.top - 42 : b.bottom + 8) + 'px';
+  tip.classList.add('on');
+}
+function onLeave(e){
+  const el = e.target.closest('.ch'); if(!el) return;
+  const id = el.dataset.id;
+  ['left','right','inline'].forEach(k => { if(spans[k][id]) spans[k][id].classList.remove('hot'); });
+  tip.classList.remove('on');
+}
+function onClick(e){
+  const el = e.target.closest('.ch'); if(!el) return;
+  e.stopPropagation();
+  const id = el.dataset.id;
+  if(menu.classList.contains('on') && menu.dataset.id === id){ hideMenu(); return; }
+  if(items(id).opts.length === 1 && pickOf(id) === null){ setPick(id, 0); render(); return; }
+  openMenu(id, el);
+}
+[leftDoc, rightDoc, inlineDoc].forEach(d => {
+  d.addEventListener('mouseover', onEnter);
+  d.addEventListener('mouseout', onLeave);
+  d.addEventListener('click', onClick);
+  d.addEventListener('scroll', hideMenu);
+});
+document.addEventListener('click', hideMenu);
+document.addEventListener('keydown', e => { if(e.key === 'Escape') hideMenu(); });
+
+document.querySelectorAll('.vw').forEach(b => {
+  b.onclick = e => { e.stopPropagation(); VIEW = b.dataset.view; hideMenu(); render(); };
+});
+
+document.querySelectorAll('.lvl').forEach(b => {
+  b.onclick = e => { e.stopPropagation(); LEVEL = +b.dataset.level; hideMenu(); render(); };
+});
+
+const rootEl = document.documentElement;
+rootEl.dataset.theme =
+  (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) ? 'dark' : 'light';
+document.getElementById('theme').onclick = e => {
+  e.stopPropagation();
+  rootEl.dataset.theme = rootEl.dataset.theme === 'dark' ? 'light' : 'dark';
+  hideMenu();
+};
+
+const modeBtn = document.getElementById('mode');
+if(!MD_OK) modeBtn.style.display = 'none';
+modeBtn.onclick = e => {
+  e.stopPropagation();
+  MODE = MODE === 'rendered' ? 'source' : 'rendered';
+  modeBtn.textContent = MODE === 'rendered' ? 'Markdown source' : 'Rendered';
+  hideMenu(); render();
+};
+
+document.getElementById('acceptAll').onclick = () => {
+  const store = LEVEL === 1 ? state : state2;
+  Object.keys(store).forEach(k => { if(store[k] === null) store[k] = 0; });
+  render();
+};
+document.getElementById('reset').onclick = () => {
+  const store = LEVEL === 1 ? state : state2;
+  Object.keys(store).forEach(k => store[k] = null);
+  render();
+};
+document.getElementById('next').onclick = () => {
+  const store = LEVEL === 1 ? state : state2;
+  const pending = Object.keys(store).find(id => store[id] === null);
+  if(!pending) return;
+  const el = anyEl(pending);
+  if(!el) return;
+  el.scrollIntoView({block:'center', behavior:'smooth'});
+  if(VIEW === 'split' && spans.right[pending]) spans.right[pending].scrollIntoView({block:'center', behavior:'smooth'});
+  el.classList.add('focus');
+  setTimeout(() => el.classList.remove('focus'), 1400);
+};
+
+// ---------- copy ----------
+function stripMarkdown(md){
+  return md
+    .replace(/^\s*#{1,6}\s+/gm, '')
+    .replace(/^(\s*)[-*+]\s+/gm, '$1')
+    .replace(/\*\*(.+?)\*\*/g, '$1')
+    .replace(/`([^`]+)`/g, '$1')
+    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '$1')
+    .replace(/\n{3,}/g, '\n\n');
+}
+function flash(btn, cls){
+  btn.classList.add(cls);
+  setTimeout(() => btn.classList.remove(cls), 1500);
+}
+async function doCopy(text, btn){
+  try{ await navigator.clipboard.writeText(text); flash(btn, 'done'); }
+  catch(err){ flash(btn, 'fail'); }
+}
+function slug(){
+  const base = (document.title.split('\u2014')[0] || 'sharp-pen').trim().toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+  return base || 'sharp-pen';
+}
+function doDownload(side, btn){
+  try{
+    const blob = new Blob([textFor(side)], {type:'text/markdown;charset=utf-8'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = slug() + (side === 'left' ? '-draft.md' : '-suggested.md');
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 2000);
+    flash(btn, 'done');
+  }catch(err){ flash(btn, 'fail'); }
+}
+document.querySelectorAll('.dlbtn').forEach(btn => {
+  btn.onclick = e => { e.stopPropagation(); hideMenu(); doDownload(btn.dataset.side, btn); };
+});
+function openCopyMenu(side, btn){
+  tip.classList.remove('on');
+  menu.textContent = '';
+  menu.dataset.id = 'copy-' + side;
+  const h = document.createElement('div');
+  h.className = 'head';
+  h.textContent = side === 'left' ? 'Copy your draft' : 'Copy suggested version';
+  menu.appendChild(h);
+  const mk = (label, sub, fn) => {
+    const b = document.createElement('button');
+    b.className = 'opt';
+    b.innerHTML = '<span class="tick"></span><span class="txt"></span>';
+    const t = b.querySelector('.txt');
+    t.style.fontFamily = 'inherit';
+    t.textContent = label;
+    const sp = document.createElement('span');
+    sp.className = 'sub';
+    sp.textContent = sub;
+    t.appendChild(sp);
+    b.onclick = ev => { ev.stopPropagation(); fn(); hideMenu(); };
+    menu.appendChild(b);
+  };
+  mk('Markdown', 'Source text, formatting syntax kept', () => doCopy(textFor(side), btn));
+  mk('Raw text', 'Formatting syntax stripped out', () => doCopy(stripMarkdown(textFor(side)), btn));
+  menu.classList.add('on');
+  placeMenu(btn, true);
+}
+document.querySelectorAll('.copybtn').forEach(btn => {
+  btn.onclick = e => {
+    e.stopPropagation();
+    const side = btn.dataset.side;
+    if(menu.classList.contains('on') && menu.dataset.id === 'copy-' + side){ hideMenu(); return; }
+    openCopyMenu(side, btn);
+  };
+});
+
+let lock = false;
+function sync(a, b){
+  a.addEventListener('scroll', () => {
+    if(lock) return; lock = true;
+    const ratio = a.scrollTop / Math.max(1, a.scrollHeight - a.clientHeight);
+    b.scrollTop = ratio * (b.scrollHeight - b.clientHeight);
+    requestAnimationFrame(() => lock = false);
+  });
+}
+sync(leftDoc, rightDoc); sync(rightDoc, leftDoc);
+
+render();
+
+</script>
+</body>
+</html>
