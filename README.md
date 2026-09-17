@@ -81,9 +81,21 @@ Then paste a draft into any project and ask for proofreading, or run
 and upload it as a skill. Older versions are on the
 [Releases](https://github.com/Nobbettt/sharp-pen/releases) page.
 
-**Other clients (Codex, Copilot CLI, …)** — unzip the same release into your
-client's skills directory so it contains a `sharp-pen/` folder with `SKILL.md`
-at its root.
+**Codex** — Codex picks up skills from `~/.agents/skills/`. Unzip the latest
+release there:
+
+```bash
+mkdir -p ~/.agents/skills
+curl -L https://github.com/Nobbettt/sharp-pen/releases/latest/download/sharp-pen-latest.zip -o /tmp/sharp-pen.zip
+unzip -o /tmp/sharp-pen.zip -d ~/.agents/skills
+```
+
+Then type `$sharp-pen` followed by your text, or just ask for proofreading. For
+a single project, unzip into `.agents/skills/` at the repo root instead.
+
+**Other clients (Copilot CLI, …)** — unzip the same release into your client's
+skills directory so it contains a `sharp-pen/` folder with `SKILL.md` at its
+root.
 
 Requirements: Python 3. The scripts use only the standard library.
 
@@ -110,7 +122,8 @@ In the Claude desktop app the review page opens right beside the conversation:
 
 ## About the author
 
-I'm Norbert Laszlo, an AI solutions architect in Gothenburg, Sweden, with a
-background in data science and software engineering. I build tools for working
-with AI agents and write about evaluation, agents and practical AI product work
-at [norbertlaszlo.com](https://norbertlaszlo.com/).
+I'm Norbert Laszlo, an AI solutions architect with a background in data
+science and software engineering. I build tools for working with AI agents and
+write about evaluation, agents and practical AI product work at
+[norbertlaszlo.com](https://norbertlaszlo.com/) and on
+[Medium](https://medium.com/@norbert-laszlo).
