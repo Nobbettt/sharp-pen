@@ -1,0 +1,20 @@
+{
+  "title": "Example draft",
+  "level1": [
+    {"from": "New members joins", "options": ["New members join"], "note": "Plural subject, plural verb."},
+    {"from": "every few month", "options": ["every few months"], "note": "'Few' takes a plural noun."},
+    {"from": "Its not that", "options": ["It's not that"], "note": "Contraction of 'it is'."},
+    {"from": "its that the person", "options": ["it's that the person"], "note": "Contraction of 'it is'."},
+    {"from": "turned out simple", "options": ["turned out to be simple", "turned out simple enough"], "note": "'Turn out' wants 'to be' before an adjective here."}
+  ],
+  "level2": [
+    {"from": "Have to say the fix turned out simple.",
+     "options": ["I have to say the fix turned out to be simple.",
+                 "The fix, I have to say, was simple."],
+     "note": "Missing subject — reads as a fragment."},
+    {"from": "The newest member owns the guide until the next one arrives, they fix what confused them while it is still fresh.",
+     "options": ["The newest member owns the guide until the next one arrives, and fixes what confused them while it is still fresh.",
+                 "The newest member owns the guide until the next one arrives. They fix what confused them while it is still fresh."],
+     "note": "Comma splice."}
+  ]
+}

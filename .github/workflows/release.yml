@@ -1,0 +1,40 @@
+name: Package skill
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # The skill lives at sharp-pen/skills/review/ so the plugin command is
+      # /sharp-pen:review. The zip renames that folder back to sharp-pen/ and
+      # leaves out the plugin manifest, which a skill upload rejects.
+      - name: Zip skill
+        run: |
+          mkdir stage
+          cp -R sharp-pen/skills/review stage/sharp-pen
+          (cd stage && zip -r "../sharp-pen-${GITHUB_REF_NAME}.zip" sharp-pen -x '*.DS_Store')
+          # Same archive under a fixed name, so releases/latest/download/sharp-pen-latest.zip
+          # always resolves to the newest release.
+          cp "sharp-pen-${GITHUB_REF_NAME}.zip" sharp-pen-latest.zip
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sharp-pen-${{ github.ref_name }}
+          path: sharp-pen-${{ github.ref_name }}.zip
+
+      - name: Create release
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "${GITHUB_REF_NAME}" "sharp-pen-${GITHUB_REF_NAME}.zip" sharp-pen-latest.zip --title "${GITHUB_REF_NAME}" --generate-notes
