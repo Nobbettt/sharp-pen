@@ -24,7 +24,7 @@ the right, every difference clickable. Accept a change with one click; when
 there is more than one reasonable phrasing, pick from a dropdown. Nothing is
 applied until you say so.
 
-![A sharp-pen review page: the draft on the left, suggestions on the right, four changes accepted and a dropdown offering alternative phrasings](docs/assets/preview.png)
+https://github.com/user-attachments/assets/b6a5560d-e13b-4930-a54c-0fd3008aa696
 
 It is packaged as an agent skill, a folder with instructions and two small
 Python scripts, so it works in any client that reads the skill format: Claude
