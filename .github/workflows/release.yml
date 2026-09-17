@@ -1,40 +1,64 @@
-name: Package skill
+name: Release skill
+
+# Every merge to main that touches the skill becomes a release: the patch
+# number of the last v* tag is bumped, the skill is zipped, and a GitHub
+# release is created with the versioned zip plus sharp-pen-latest.zip.
+#
+# Claude Code plugin users do not depend on this: plugin.json has no version
+# field, so they update on every new commit SHA.
 
 on:
   push:
-    tags:
-      - 'v*'
+    branches: [main]
+    paths: ['sharp-pen/**', '.github/workflows/release.yml']
   workflow_dispatch:
 
 permissions:
   contents: write
 
+concurrency:
+  group: release
+  cancel-in-progress: false
+
 jobs:
-  build:
+  release:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # tags are needed to compute the next version
+
+      - name: Next version
+        id: version
+        run: |
+          latest=$(git tag -l 'v*' --sort=-v:refname | head -1)
+          if [ -z "$latest" ]; then
+            next=v0.1.0
+          else
+            IFS=. read -r major minor patch <<< "${latest#v}"
+            next="v${major}.${minor}.$((patch + 1))"
+          fi
+          echo "tag=$next" >> "$GITHUB_OUTPUT"
+          echo "Releasing $next (previous: ${latest:-none})"
 
       # The skill lives at sharp-pen/skills/review/ so the plugin command is
       # /sharp-pen:review. The zip renames that folder back to sharp-pen/ and
       # leaves out the plugin manifest, which a skill upload rejects.
       - name: Zip skill
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
         run: |
           mkdir stage
           cp -R sharp-pen/skills/review stage/sharp-pen
-          (cd stage && zip -r "../sharp-pen-${GITHUB_REF_NAME}.zip" sharp-pen -x '*.DS_Store')
+          (cd stage && zip -r "../sharp-pen-${TAG}.zip" sharp-pen -x '*.DS_Store')
           # Same archive under a fixed name, so releases/latest/download/sharp-pen-latest.zip
           # always resolves to the newest release.
-          cp "sharp-pen-${GITHUB_REF_NAME}.zip" sharp-pen-latest.zip
+          cp "sharp-pen-${TAG}.zip" sharp-pen-latest.zip
 
-      - name: Upload build artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: sharp-pen-${{ github.ref_name }}
-          path: sharp-pen-${{ github.ref_name }}.zip
-
-      - name: Create release
-        if: startsWith(github.ref, 'refs/tags/')
+      - name: Create tag and release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "${GITHUB_REF_NAME}" "sharp-pen-${GITHUB_REF_NAME}.zip" sharp-pen-latest.zip --title "${GITHUB_REF_NAME}" --generate-notes
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          gh release create "$TAG" "sharp-pen-${TAG}.zip" sharp-pen-latest.zip \
+            --target "$GITHUB_SHA" --title "$TAG" --generate-notes
