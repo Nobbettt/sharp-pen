@@ -1,0 +1,14 @@
+{
+  "name": "sharp-pen",
+  "description": "Copy-editing skill: interactive review pages for drafts.",
+  "owner": {
+    "name": "Norbert Laszlo"
+  },
+  "plugins": [
+    {
+      "name": "sharp-pen",
+      "source": "./sharp-pen",
+      "description": "Copy-edit a draft into an interactive review page: accept each suggested change one click at a time."
+    }
+  ]
+}

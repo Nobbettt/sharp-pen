@@ -45,6 +45,8 @@ def main():
     ap.add_argument("--open", action="store_true", help="open a browser window")
     args = ap.parse_args()
 
+    sys.stdout.reconfigure(line_buffering=True)  # the URL must appear even when stdout is a pipe, not a TTY
+
     path = Path(args.file).resolve()
     if not path.is_file():
         print("error: {} does not exist".format(path), file=sys.stderr)

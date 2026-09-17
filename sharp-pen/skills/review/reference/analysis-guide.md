@@ -23,7 +23,7 @@ trail off. Keep the author's register, contractions, humour and opinions.
 
 ## Scale
 
-Roughly one level-1 entry per 40–60 words, and one level-2 entry per 2–4
+Roughly one level-1 entry per 20–30 words, and one level-2 entry per 2–4
 sentences that need it. A 1,200-word rough draft lands around 40–60 level-1 and
 15–25 level-2. Sentences that read well get nothing.
 
