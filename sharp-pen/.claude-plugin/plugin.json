@@ -1,7 +1,8 @@
 {
   "name": "sharp-pen",
   "description": "Copy-edit a draft into an interactive review page: accept each suggested change one click at a time.",
-  "version": "0.1.0",
-  "author": { "name": "Norbert Laszlo" },
+  "author": {
+    "name": "Norbert Laszlo"
+  },
   "repository": "https://github.com/Nobbettt/sharp-pen"
 }
