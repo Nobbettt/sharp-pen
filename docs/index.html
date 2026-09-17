@@ -135,6 +135,11 @@
   }
   #tip.on{opacity:1}
 
+  #copyfb{border:1px solid var(--line); border-radius:10px; background:var(--bg); color:var(--ink); padding:16px; width:min(720px, 92vw)}
+  #copyfb::backdrop{background:rgba(0,0,0,.35)}
+  #copyfb p{margin:0 0 10px; font-size:14px}
+  #copyfb textarea{width:100%; box-sizing:border-box; font:13px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace; color:var(--ink); background:var(--bg); border:1px solid var(--line); border-radius:6px; padding:8px}
+  #copyfb form{margin:10px 0 0; text-align:right}
   #menu{
     position:fixed; z-index:60; display:none; min-width:250px; max-width:480px;
     background:var(--panel); border:1px solid var(--line); border-radius:10px;
@@ -258,6 +263,11 @@
 
 <div id="tip"></div>
 <div id="menu"></div>
+<dialog id="copyfb">
+  <p>This page is not allowed to write to your clipboard here. The text is selected below — press <kbd>Ctrl</kbd>/<kbd>⌘</kbd>+<kbd>C</kbd> to copy it.</p>
+  <textarea readonly rows="12" spellcheck="false"></textarea>
+  <form method="dialog"><button>Close</button></form>
+</dialog>
 
 <script>
 const DATA = {"title": "What we learned from a year of retrospectives", "source": "# What we learned from a year of retrospectives\n\nWhen our team started doing retrospectives, the idea was simple: once every two weeks, sit down for an hour and talk about what went well and what didn't. A year later the meeting ⟦c1⟧ ⟦c2⟧, and I wanted to write down what changed and why.\n\n## The first attempts\n\nThe first few ⟦c3⟧. Everyone agreed that communication could be better, nobody said what they ⟦c4⟧, and we left with a list of action items that no one looked at again. ⟦c5⟧, I think. The meeting exists, so it must be working.\n\nWhat made it worse was that the same three people did most of the talking. The rest of the team was polite, ⟦c6⟧, and ⟦c7⟧ for the coffee machine afterwards. Have to admit I was one of the talkers.\n\n## Small changes that helped\n\nThe biggest improvement came from writing before speaking. Now everyone gets five minutes at the start to write down their points on cards, alone and in silence. ⟦c8⟧. This sounds like a small thing but it ⟦c9⟧ got heard, because the quiet people had already ⟦c10⟧ to paper before the loud ones could set the agenda.\n\nThe second change was to limit ourselves to one action item per retro. One. It felt strange at first, we had so many ideas, but a single item that actually gets done is ⟦c11⟧ that get forgotten. We also started each meeting by checking the item from last time, which made it much harder to quietly drop it.\n\nThird, we rotated who runs the meeting. The facilitator does not share their own points that session, they only make sure everyone else gets to. This was less popular, some people really do not enjoy running meetings, but it broke the pattern of the same voices dominating and it gave everyone a feel for how hard it is to keep a discussion on track.\n\n## Where we are now\n\nThe meeting is shorter, ⟦c12⟧, and people show up with things to say. Not every retro is great, some are still flat, but the average has ⟦c13⟧ and the ⟦c14⟧ ⟦c15⟧. If your team is stuck in the polite-nodding phase, I would start with the silent writing. It costs nothing and it is the one change I would not ⟦c16⟧.\n", "level1": {"c1": {"from": "looks quiet different", "opts": ["looks quite different"], "note": "quiet/quite."}, "c2": {"from": "from how it begun", "opts": ["from how it began", "from how it started"], "note": "Simple past of 'begin' is 'began'."}, "c3": {"from": "retros where awkward", "opts": ["retros were awkward"], "note": "Homophone: where/were."}, "c4": {"from": "actually ment by it", "opts": ["actually meant by it"], "note": "Typo."}, "c5": {"from": "Its a familiar pattern", "opts": ["It's a familiar pattern"], "note": "Contraction of 'it is'."}, "c6": {"from": "nodded alot", "opts": ["nodded a lot"], "note": "'A lot' is two words."}, "c7": {"from": "kept there real opinions", "opts": ["kept their real opinions"], "note": "there/their."}, "c8": {"from": "Only then we read them out", "opts": ["Only then do we read them out"], "note": "'Only then' at the start of a clause inverts the verb."}, "c9": {"from": "changed who's voice", "opts": ["changed whose voice"], "note": "who's/whose."}, "c10": {"from": "committed there thoughts", "opts": ["committed their thoughts"], "note": "there/their."}, "c11": {"from": "worth more then ten", "opts": ["worth more than ten"], "note": "then/than."}, "c12": {"from": "usually fourty minutes", "opts": ["usually forty minutes"], "note": "Typo."}, "c13": {"from": "gone up alot", "opts": ["gone up a lot"], "note": "'A lot' is two words."}, "c14": {"from": "action items now gets done", "opts": ["action items now get done"], "note": "Plural subject, plural verb."}, "c15": {"from": "more often then not", "opts": ["more often than not"], "note": "then/than."}, "c16": {"from": "want to loose", "opts": ["want to lose"], "note": "loose/lose."}}, "level2": {"s1": {"raw": "Everyone agreed that communication could be better, nobody said what they ⟦c4⟧, and we left with a list of action items that no one looked at again.", "opts": ["Everyone agreed that communication could be better, but nobody said what they actually meant by it, and we left with a list of action items that no one looked at again.", "Everyone agreed that communication could be better. Nobody said what they meant by it, and the action items we left with were never looked at again."], "note": "Three clauses in a row with no connective; the contrast between the first two is lost."}, "s2": {"raw": "Have to admit I was one of the talkers.", "opts": ["I have to admit I was one of the talkers.", "I was one of the talkers, I admit."], "note": "Missing subject — reads as a fragment."}, "s3": {"raw": "This sounds like a small thing but it ⟦c9⟧ got heard, because the quiet people had already ⟦c10⟧ to paper before the loud ones could set the agenda.", "opts": ["This sounds like a small thing, but it changed whose voice got heard: the quiet people had already committed their thoughts to paper before the loud ones could set the agenda.", "It sounds small, but it changed whose voice got heard. The quiet people had their thoughts on paper before the loud ones could set the agenda."], "note": "The 'because' clause explains the whole sentence and wants a stronger break before it."}, "s4": {"raw": "It felt strange at first, we had so many ideas, but a single item that actually gets done is ⟦c11⟧ that get forgotten.", "opts": ["It felt strange at first, since we had so many ideas, but a single item that actually gets done is worth more than ten that get forgotten.", "It felt strange at first — we had so many ideas — but one item that gets done is worth more than ten that get forgotten."], "note": "Comma splice: 'we had so many ideas' is a full clause wedged between two others."}, "s5": {"raw": "The facilitator does not share their own points that session, they only make sure everyone else gets to.", "opts": ["The facilitator does not share their own points that session; they only make sure everyone else gets to.", "The facilitator sits out that session and only makes sure everyone else gets to speak."], "note": "Comma splice."}, "s6": {"raw": "This was less popular, some people really do not enjoy running meetings, but it broke the pattern of the same voices dominating and it gave everyone a feel for how hard it is to keep a discussion on track.", "opts": ["This was less popular, since some people really do not enjoy running meetings, but it broke the pattern of the same voices dominating and gave everyone a feel for how hard it is to keep a discussion on track.", "This was less popular; some people really do not enjoy running meetings. But it broke the pattern of the same voices dominating, and everyone got a feel for how hard it is to keep a discussion on track."], "note": "Comma splice, then two long clauses chained with 'and'."}, "s7": {"raw": "Not every retro is great, some are still flat, but the average has ⟦c13⟧ and the ⟦c14⟧ ⟦c15⟧.", "opts": ["Not every retro is great, and some are still flat, but the average has gone up a lot and the action items now get done more often than not.", "Not every retro is great. Some are still flat, but the average has gone up a lot, and the action items now get done more often than not."], "note": "Comma splice at 'great, some'."}}};
@@ -598,9 +608,34 @@ function flash(btn, cls){
   btn.classList.add(cls);
   setTimeout(() => btn.classList.remove(cls), 1500);
 }
+function legacyCopy(text){ // execCommand path for sandboxes without the async clipboard API
+  const ta = document.createElement('textarea');
+  ta.value = text;
+  ta.setAttribute('readonly', '');
+  ta.style.cssText = 'position:fixed;top:0;left:0;opacity:0;pointer-events:none';
+  document.body.appendChild(ta);
+  ta.select();
+  let ok = false;
+  try{ ok = document.execCommand('copy'); }catch(err){ ok = false; }
+  ta.remove();
+  return ok;
+}
+const copyDlg = document.getElementById('copyfb');
+function showCopyFallback(text){ // last resort: put the text in front of the user to copy by hand
+  const ta = copyDlg.querySelector('textarea');
+  ta.value = text;
+  copyDlg.showModal();
+  ta.focus(); ta.select();
+}
 async function doCopy(text, btn){
-  try{ await navigator.clipboard.writeText(text); flash(btn, 'done'); }
-  catch(err){ flash(btn, 'fail'); }
+  try{
+    if(!navigator.clipboard || !navigator.clipboard.writeText) throw new Error('no clipboard API');
+    await navigator.clipboard.writeText(text);
+    flash(btn, 'done'); return;
+  }catch(err){ /* fall through */ }
+  if(legacyCopy(text)){ flash(btn, 'done'); return; }
+  flash(btn, 'fail');
+  showCopyFallback(text);
 }
 function slug(){
   const base = (document.title.split('\u2014')[0] || 'sharp-pen').trim().toLowerCase()
@@ -630,7 +665,7 @@ function openCopyMenu(side, btn){
   menu.dataset.id = 'copy-' + side;
   const h = document.createElement('div');
   h.className = 'head';
-  h.textContent = side === 'left' ? 'Copy your draft' : 'Copy suggested version';
+  h.textContent = side === 'left' ? 'Copy your draft, with the changes you accepted' : 'Copy suggested version, every suggestion applied';
   menu.appendChild(h);
   const mk = (label, sub, fn) => {
     const b = document.createElement('button');
