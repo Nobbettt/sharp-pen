@@ -4,8 +4,10 @@ name: Release skill
 # number of the last v* tag is bumped, the skill is zipped, and a GitHub
 # release is created with standalone-skill and plugin archives.
 #
-# Claude Code plugin users do not depend on this: its compatibility manifest
-# has no version field, so they update on every new commit SHA.
+# The manifests carry no version field in the repo on purpose: that is what
+# makes Claude Code plugin users track every new commit SHA instead of being
+# pinned to a version string that only a bot pushing to main could refresh.
+# The release archives are stamped with the tag at build time.
 
 on:
   push:
@@ -41,6 +43,15 @@ jobs:
           echo "tag=$next" >> "$GITHUB_OUTPUT"
           echo "Releasing $next (previous: ${latest:-none})"
 
+      # Both manifests describe the same plugin: .claude-plugin/plugin.json is
+      # what Claude Code reads, plugin.json is the cross-client
+      # agent-plugins.org spec file. They must not drift apart.
+      - name: Check manifests agree
+        run: |
+          a=$(jq -S '{name,description,license,homepage,repository}' sharp-pen/.claude-plugin/plugin.json)
+          b=$(jq -S '{name,description,license,homepage,repository}' sharp-pen/plugin.json)
+          [ "$a" = "$b" ] || { echo "manifests disagree:"; diff <(echo "$a") <(echo "$b"); exit 1; }
+
       # The skill lives at sharp-pen/skills/review/ so the plugin command is
       # /sharp-pen:review. The zip renames that folder back to sharp-pen/ and
       # leaves out the plugin manifest, which a skill upload rejects.
@@ -61,9 +72,12 @@ jobs:
         run: |
           mkdir plugin-stage
           cp -R sharp-pen plugin-stage/sharp-pen
-          jq --arg version "${TAG#v}" '.version = $version' \
-            plugin-stage/sharp-pen/plugin.json > plugin-stage/plugin.json
-          mv plugin-stage/plugin.json plugin-stage/sharp-pen/plugin.json
+          # Stamp the released version into both manifests, not just one.
+          for manifest in plugin-stage/sharp-pen/.claude-plugin/plugin.json \
+                          plugin-stage/sharp-pen/plugin.json; do
+            jq --arg version "${TAG#v}" '.version = $version' "$manifest" > "$manifest.tmp"
+            mv "$manifest.tmp" "$manifest"
+          done
           (cd plugin-stage && zip -r "../sharp-pen-plugin-${TAG}.zip" sharp-pen -x '*.DS_Store')
           cp "sharp-pen-plugin-${TAG}.zip" sharp-pen-plugin-latest.zip
 
