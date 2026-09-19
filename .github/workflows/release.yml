@@ -2,10 +2,10 @@ name: Release skill
 
 # Every merge to main that touches the skill becomes a release: the patch
 # number of the last v* tag is bumped, the skill is zipped, and a GitHub
-# release is created with the versioned zip plus sharp-pen-latest.zip.
+# release is created with standalone-skill and plugin archives.
 #
-# Claude Code plugin users do not depend on this: plugin.json has no version
-# field, so they update on every new commit SHA.
+# Claude Code plugin users do not depend on this: its compatibility manifest
+# has no version field, so they update on every new commit SHA.
 
 on:
   push:
@@ -55,10 +55,23 @@ jobs:
           # always resolves to the newest release.
           cp "sharp-pen-${TAG}.zip" sharp-pen-latest.zip
 
+      - name: Zip plugin
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          mkdir plugin-stage
+          cp -R sharp-pen plugin-stage/sharp-pen
+          jq --arg version "${TAG#v}" '.version = $version' \
+            plugin-stage/sharp-pen/plugin.json > plugin-stage/plugin.json
+          mv plugin-stage/plugin.json plugin-stage/sharp-pen/plugin.json
+          (cd plugin-stage && zip -r "../sharp-pen-plugin-${TAG}.zip" sharp-pen -x '*.DS_Store')
+          cp "sharp-pen-plugin-${TAG}.zip" sharp-pen-plugin-latest.zip
+
       - name: Create tag and release
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.version.outputs.tag }}
         run: |
           gh release create "$TAG" "sharp-pen-${TAG}.zip" sharp-pen-latest.zip \
+            "sharp-pen-plugin-${TAG}.zip" sharp-pen-plugin-latest.zip \
             --target "$GITHUB_SHA" --title "$TAG" --generate-notes
