@@ -35,8 +35,8 @@ asked to change the UI itself.
   markdown parsing must not mangle them.
 - **Downloads.** Blob + anchor click. Works from a local file or localhost;
   silently blocked inside a hosted artifact preview.
-- **Copy must never fail silently.** Sandboxed previews (Claude desktop
-  artifacts) deny `navigator.clipboard`; a bare `try/catch` left the old
+- **Copy must never fail silently.** Sandboxed previews (including ChatGPT and
+  Claude desktop artifacts) deny `navigator.clipboard`; a bare `try/catch` left the old
   clipboard contents in place and the author pasted their unedited draft.
   `doCopy()` now falls back to `execCommand('copy')`, and if that fails too
   opens the `#copyfb` dialog with the text selected for a manual copy.

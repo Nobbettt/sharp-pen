@@ -17,7 +17,7 @@ relative to the folder containing this SKILL.md — *not* the working directory.
 Resolve it once and use it throughout:
 
 ```bash
-SP="${CLAUDE_PLUGIN_ROOT}/skills/review"   # filled in when installed as a Claude Code plugin
+SP="${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/skills/review"
 [ -f "$SP/SKILL.md" ] || SP=$(dirname "$(find ~ /mnt /opt /workspace -name SKILL.md -path '*sharp-pen*' 2>/dev/null | head -1)")
 ls "$SP/scripts/build.py" "$SP/assets/template.html"
 ```
@@ -77,10 +77,10 @@ Iterating once or twice is normal and not worth reporting.
 
 **4. Deliver.**
 
-- *Outputs directory available (Claude app, Cowork):* build with `--out
-  /mnt/user-data/outputs/sharp-pen-review.html` and call `present_files` — only
-  the page is delivered, the intermediates stay in `$RUN`. A local file, never a
-  published or hosted artifact.
+- *Client with file attachments (ChatGPT, Claude app, Cowork):* build into the
+  outputs directory supplied by the client and attach or present the page — only
+  the page is delivered, while intermediates stay in `$RUN`. A local file, never
+  a published or hosted artifact.
 - *Terminal client (Claude Code, Codex, Copilot CLI):* build into `$RUN`, then
   `python3 "$SP/scripts/serve.py" "$RUN/sharp-pen-review.html"` — binds
   127.0.0.1 on a free port, prints the URL, foreground until Ctrl-C. `--open`

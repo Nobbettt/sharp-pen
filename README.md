@@ -11,7 +11,7 @@
 
 <p align="center">
   <a href="https://nobbettt.github.io/sharp-pen/"><img src="https://img.shields.io/badge/Demo-Live-blue?style=for-the-badge" alt="Live demo"></a>
-  <a href="#install"><img src="https://img.shields.io/badge/Claude%20Code-Plugin-d97757?style=for-the-badge" alt="Claude Code plugin"></a>
+  <a href="#install"><img src="https://img.shields.io/badge/Claude%20%7C%20ChatGPT%20%7C%20Codex-Plugin-d97757?style=for-the-badge" alt="Claude, ChatGPT and Codex plugin"></a>
   <a href="https://github.com/Nobbettt/sharp-pen/releases/latest/download/sharp-pen-latest.zip"><img src="https://img.shields.io/badge/Download-Skill%20.zip-green?style=for-the-badge&logo=github&logoColor=white" alt="Download the skill as a zip"></a>
 </p>
 
@@ -26,9 +26,9 @@ applied until you say so.
 
 https://github.com/user-attachments/assets/7fab5412-2428-4cd1-8e86-4208745bcfe7
 
-It is packaged as an agent skill, a folder with instructions and two small
-Python scripts, so it works in any client that reads the skill format: Claude
-Code, the Claude app, Codex, Copilot CLI and others.
+It is packaged as an agent skill and plugin: a folder with instructions and two
+small Python scripts that work in Claude, ChatGPT, Codex, Copilot CLI and other
+clients that read the skill format.
 
 Two passes, toggled in the page:
 
@@ -81,17 +81,19 @@ Then paste a draft into any project and ask for proofreading, or run
 and upload it as a skill. Older versions are on the
 [Releases](https://github.com/Nobbettt/sharp-pen/releases) page.
 
-**Codex** — Codex picks up skills from `~/.agents/skills/`. Unzip the latest
-release there:
+**Codex / ChatGPT desktop plugin**
 
 ```bash
-mkdir -p ~/.agents/skills
-curl -L https://github.com/Nobbettt/sharp-pen/releases/latest/download/sharp-pen-latest.zip -o /tmp/sharp-pen.zip
-unzip -o /tmp/sharp-pen.zip -d ~/.agents/skills
+codex plugin marketplace add Nobbettt/sharp-pen
+codex plugin add sharp-pen@sharp-pen
 ```
 
-Then type `$sharp-pen` followed by your text, or just ask for proofreading. For
-a single project, unzip into `.agents/skills/` at the repo root instead.
+Restart ChatGPT desktop after adding the marketplace. Then type `$sharp-pen`
+followed by your text, or just ask for proofreading.
+
+For a standalone Codex skill instead, unzip
+[`sharp-pen-latest.zip`](https://github.com/Nobbettt/sharp-pen/releases/latest/download/sharp-pen-latest.zip)
+into `~/.agents/skills/`, or `.agents/skills/` at a project root.
 
 **Other clients (Copilot CLI, …)** — unzip the same release into your client's
 skills directory so it contains a `sharp-pen/` folder with `SKILL.md` at its
@@ -115,6 +117,11 @@ The assistant saves your text untouched, works out the suggestions, builds the
 review page and opens it for you. Click through the changes, pick the phrasing
 you want where there are alternatives, and download the finished text from the
 page. Your original is never edited in place.
+
+In the ChatGPT desktop app the review opens in a browser pane beside the
+conversation:
+
+![sharp-pen in the ChatGPT desktop app: a draft in the conversation on the left and the interactive Level 1 review page with highlighted corrections in a browser pane on the right](docs/assets/chatGPT-desktop-use-example.png)
 
 In the Claude desktop app the review page opens right beside the conversation:
 

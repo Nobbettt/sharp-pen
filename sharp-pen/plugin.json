@@ -1,0 +1,12 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "sharp-pen",
+  "description": "Copy-edit a draft into an interactive review page where every suggested change is optional.",
+  "author": {
+    "name": "Norbert Laszlo",
+    "url": "https://norbertlaszlo.com"
+  },
+  "homepage": "https://nobbettt.github.io/sharp-pen/",
+  "repository": "https://github.com/Nobbettt/sharp-pen",
+  "keywords": ["copy-editing", "proofreading", "writing"]
+}
