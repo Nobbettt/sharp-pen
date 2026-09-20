@@ -17,11 +17,9 @@
 
 ---
 
-Ask an AI assistant to proofread and it rewrites: smoother, flatter, and not
-quite yours. sharp-pen is Grammarly-style proofreading run by the assistant you
-already have — Claude, ChatGPT, Codex — that fixes your writing without changing
-your tone or reformulating what you wanted to say. Hand it a draft and it hands
-back a review page: your text on the left, suggestions on
+Grammarly-style proofreading, run by your AI assistant. It fixes your writing
+without changing your tone or reformulating what you wanted to say. Hand it a
+draft and it hands back a review page: your text on the left, suggestions on
 the right, every difference clickable. Accept a change with one click; when
 there is more than one reasonable phrasing, pick from a dropdown. Nothing is
 applied until you say so.
