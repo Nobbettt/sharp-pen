@@ -10,6 +10,14 @@ sharp-pen collects nothing, stores nothing, and transmits nothing.
 - Your draft and the review page it produces are ordinary local files. Delete
   them and nothing remains.
 
+## The demo website
+
+The one exception is the hosted demo at https://nobbettt.github.io/sharp-pen/,
+which carries a cookieless page-view counter (Cloudflare Web Analytics) so we
+can tell whether anyone finds the project. It counts page views and referrers
+in aggregate; it sets no cookies and does not track you across sites. It exists
+only on that demo page — a review page you build yourself never contains it.
+
 ## What sharp-pen does not control
 
 The suggestions themselves are produced by the AI assistant you run the skill
