@@ -7,3 +7,6 @@ __pycache__/
 
 # local marketing/brag video output
 marketing/
+
+# browser-automation output (Playwright MCP)
+.playwright-mcp/

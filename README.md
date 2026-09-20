@@ -6,7 +6,7 @@
 </p>
 
 <p align="center">
-  <strong>Grammarly-style proofreading, run by your AI assistant. You keep the pen.</strong>
+  <strong>AI proofreading that never rewrites you. You keep the pen.</strong>
 </p>
 
 <p align="center">
@@ -17,9 +17,11 @@
 
 ---
 
-Grammarly-style proofreading, run by your AI assistant. It fixes your writing
-without changing your tone or reformulating what you wanted to say. Hand it a
-draft and it hands back a review page: your text on the left, suggestions on
+Ask an AI assistant to proofread and it rewrites: smoother, flatter, and not
+quite yours. sharp-pen is Grammarly-style proofreading run by the assistant you
+already have — Claude, ChatGPT, Codex — that fixes your writing without changing
+your tone or reformulating what you wanted to say. Hand it a draft and it hands
+back a review page: your text on the left, suggestions on
 the right, every difference clickable. Accept a change with one click; when
 there is more than one reasonable phrasing, pick from a dropdown. Nothing is
 applied until you say so.
@@ -57,31 +59,30 @@ you, so the choice of wording stays with the author. Every suggestion is a
 separate click. The author stays the author. The AI is a careful copy editor
 that never touches the text without asking.
 
-## Example
+## Try it
 
-**[Live demo](https://nobbettt.github.io/sharp-pen/)** — a 400-word blog draft
-reviewed by sharp-pen. Toggle between Level 1 and Level 2, click a highlight to
+No install needed: the **[live demo](https://nobbettt.github.io/sharp-pen/)** is
+a 400-word blog draft reviewed by sharp-pen. Toggle between Level 1 and Level 2, click a highlight to
 accept it, open a dropdown where more than one phrasing fits, then download the
 result.
 
 ## Install
 
-**Claude Code**
+You don't need a terminal. sharp-pen is free on every Claude plan, including
+Free, and on ChatGPT desktop.
 
-```
-/plugin marketplace add Nobbettt/sharp-pen
-/plugin install sharp-pen@sharp-pen
-```
+**Claude — web or desktop app**
 
-Then paste a draft into any project and ask for proofreading, or run
-`/sharp-pen:review` followed by the text.
+1. Download [`sharp-pen-latest.zip`](https://github.com/Nobbettt/sharp-pen/releases/latest/download/sharp-pen-latest.zip).
+2. In Claude, open **Settings → Customize → Skills**.
+3. Click **+**, choose **Create skill**, then **Upload a skill**, and pick the zip.
+4. It appears in your skills list, switched on. Paste a draft into any chat and
+   ask for proofreading.
 
-**Claude app / Cowork** — download
-[`sharp-pen-latest.zip`](https://github.com/Nobbettt/sharp-pen/releases/latest/download/sharp-pen-latest.zip)
-and upload it as a skill. Older versions are on the
+Works the same in Cowork. Older versions are on the
 [Releases](https://github.com/Nobbettt/sharp-pen/releases) page.
 
-**Codex / ChatGPT desktop plugin**
+**ChatGPT desktop / Codex**
 
 ```bash
 codex plugin marketplace add Nobbettt/sharp-pen
@@ -95,9 +96,20 @@ For a standalone Codex skill instead, unzip
 [`sharp-pen-latest.zip`](https://github.com/Nobbettt/sharp-pen/releases/latest/download/sharp-pen-latest.zip)
 into `~/.agents/skills/`, or `.agents/skills/` at a project root.
 
-**Other clients (Copilot CLI, …)** — unzip the same release into your client's
-skills directory so it contains a `sharp-pen/` folder with `SKILL.md` at its
-root.
+**Claude Code**
+
+```
+/plugin marketplace add Nobbettt/sharp-pen
+/plugin install sharp-pen@sharp-pen
+```
+
+Then paste a draft into any project and ask for proofreading, or run
+`/sharp-pen:review` followed by the text.
+
+**Other clients (Copilot CLI, VS Code, …)** — unzip the same release into your
+client's skills directory so it contains a `sharp-pen/` folder with `SKILL.md`
+at its root. VS Code also installs it straight from the repo URL with
+*Chat: Install Plugin From Source*.
 
 Requirements: Python 3. The scripts use only the standard library.
 
@@ -126,6 +138,14 @@ conversation:
 In the Claude desktop app the review page opens right beside the conversation:
 
 ![sharp-pen in the Claude desktop app: the /sharp-pen prompt with a pasted draft on the left, the assistant's short summary of what it changed and left alone, and the review page with Level 1 highlights open beside it](docs/assets/claude-desktop-use-example.png)
+
+## Privacy
+
+Nothing is collected, stored or sent anywhere. The review page is a single
+self-contained HTML file with no external resources; the local server binds to
+`127.0.0.1` only. Your draft is read by whichever assistant you run the skill
+in, under that provider's terms — sharp-pen adds no transmission of its own.
+Details in [PRIVACY.md](PRIVACY.md).
 
 ## About the author
 
