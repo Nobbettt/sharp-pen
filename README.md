@@ -6,7 +6,7 @@
 </p>
 
 <p align="center">
-  <strong>AI proofreading that never rewrites you. You keep the pen.</strong>
+  <strong>Grammarly-style proofreading, run by your AI assistant. You keep the pen.</strong>
 </p>
 
 <p align="center">
