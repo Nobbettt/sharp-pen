@@ -10,3 +10,6 @@ marketing/
 
 # browser-automation output (Playwright MCP)
 .playwright-mcp/
+
+# personal planning notes, never published
+private-docs/
