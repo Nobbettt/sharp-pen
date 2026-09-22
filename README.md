@@ -30,6 +30,9 @@ It is packaged as an agent skill and plugin: a folder with instructions and two
 small Python scripts that work in Claude, ChatGPT, Codex, Copilot CLI and other
 clients that read the skill format.
 
+There is also a separate [VS Code extension](vscode-extension/README.md) for
+reviewing Markdown and plain-text editors with a user-installed local AI CLI.
+
 Two passes, toggled in the page:
 
 - **Level 1 — spelling and grammar.** Things that are wrong: typos, agreement,
@@ -104,10 +107,19 @@ into `~/.agents/skills/`, or `.agents/skills/` at a project root.
 Then paste a draft into any project and ask for proofreading, or run
 `/sharp-pen:review` followed by the text.
 
-**Other clients (Copilot CLI, VS Code, …)** — unzip the same release into your
-client's skills directory so it contains a `sharp-pen/` folder with `SKILL.md`
-at its root. VS Code also installs it straight from the repo URL with
-*Chat: Install Plugin From Source*.
+**VS Code extension**
+
+The extension supports VS Code's Markdown and plain-text language modes on
+desktop and remote workspace extension hosts. Install a VSIX with
+`code --install-extension sharp-pen-0.1.0.vsix`, or open `vscode-extension/`,
+run `npm install`, and press `F5` in desktop VS Code to develop it. It is not
+currently published to the VS Code Marketplace. See the
+[extension README](vscode-extension/README.md) for requirements, provider and
+model selection, remote-host setup, and privacy details.
+
+**Other clients (Copilot CLI, …)** — unzip the same release into your client's
+skills directory so it contains a `sharp-pen/` folder with `SKILL.md` at its
+root.
 
 Requirements: Python 3. The scripts use only the standard library.
 
@@ -139,11 +151,12 @@ In the Claude desktop app the review page opens right beside the conversation:
 
 ## Privacy
 
-Nothing is collected, stored or sent anywhere. The review page is a single
-self-contained HTML file with no external resources; the local server binds to
-`127.0.0.1` only. Your draft is read by whichever assistant you run the skill
-in, under that provider's terms — sharp-pen adds no transmission of its own.
-Details in [PRIVACY.md](PRIVACY.md).
+The Sharp Pen service collects, stores, and transmits nothing. The review page is
+a single self-contained HTML file with no external resources; the local server
+binds to `127.0.0.1` only. Your draft is read by whichever assistant you run the
+skill in, and a selected CLI sends review prose to its provider under that
+provider's terms. Sharp Pen adds no transmission of its own. Details in
+[PRIVACY.md](PRIVACY.md).
 
 ## About the author
 

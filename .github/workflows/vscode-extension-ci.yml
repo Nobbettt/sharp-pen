@@ -1,0 +1,50 @@
+name: VS Code extension CI
+
+on:
+  push:
+    paths:
+      - "vscode-extension/**"
+      - ".github/workflows/vscode-extension-ci.yml"
+  pull_request:
+    paths:
+      - "vscode-extension/**"
+      - ".github/workflows/vscode-extension-ci.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  minimum-runtime:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: vscode-extension
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 18.15.0
+          cache: npm
+          cache-dependency-path: vscode-extension/package-lock.json
+      - run: npm ci
+      - run: npm test
+
+  test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    defaults:
+      run:
+        working-directory: vscode-extension
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: vscode-extension/package-lock.json
+      - run: npm ci
+      - run: npm test
+      - run: npm run package

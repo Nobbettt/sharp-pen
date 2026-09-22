@@ -1,0 +1,129 @@
+{
+  "name": "sharp-pen",
+  "displayName": "Sharp Pen",
+  "description": "Review Markdown and plain-text writing with your local AI CLI.",
+  "version": "0.1.0",
+  "publisher": "nobbettt",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Nobbettt/sharp-pen.git"
+  },
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "extensionKind": [
+    "workspace"
+  ],
+  "categories": [
+    "Other"
+  ],
+  "keywords": [
+    "proofreading",
+    "grammar",
+    "writing",
+    "markdown"
+  ],
+  "main": "./out/extension.js",
+  "icon": "media/icon-128.png",
+  "contributes": {
+    "commands": [
+      {
+        "command": "sharpPen.openReview",
+        "title": "Sharp Pen: Open Review",
+        "icon": "$(edit)"
+      },
+      {
+        "command": "sharpPen.analyze",
+        "title": "Sharp Pen: Analyze"
+      },
+      {
+        "command": "sharpPen.cancelAnalysis",
+        "title": "Sharp Pen: Cancel Analysis"
+      },
+      {
+        "command": "sharpPen.selectModel",
+        "title": "Sharp Pen: Select Model..."
+      },
+      {
+        "command": "sharpPen.refreshModels",
+        "title": "Sharp Pen: Refresh Models"
+      },
+      {
+        "command": "sharpPen.openSettings",
+        "title": "Sharp Pen: Open Settings"
+      }
+    ],
+    "menus": {
+      "editor/title": [
+        {
+          "command": "sharpPen.openReview",
+          "when": "editorLangId == markdown || editorLangId == plaintext",
+          "group": "navigation@100"
+        }
+      ],
+      "editor/context": [
+        {
+          "command": "sharpPen.openReview",
+          "when": "editorLangId == markdown || editorLangId == plaintext",
+          "group": "navigation@100"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "sharpPen.openReview",
+          "when": "editorLangId == markdown || editorLangId == plaintext"
+        },
+        {
+          "command": "sharpPen.analyze",
+          "when": "editorLangId == markdown || editorLangId == plaintext"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Sharp Pen",
+      "properties": {
+        "sharpPen.configure": {
+          "type": "string",
+          "default": "open",
+          "enum": [
+            "open"
+          ],
+          "enumDescriptions": [
+            "This value is only a settings launcher."
+          ],
+          "markdownDescription": "[Open Sharp Pen settings…](command:sharpPen.openSettings)"
+        }
+      }
+    }
+  },
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": "limited",
+      "description": "Sharp Pen can open a review in untrusted workspaces, but analysis is unavailable until the workspace is trusted."
+    },
+    "virtualWorkspaces": {
+      "supported": false,
+      "description": "Sharp Pen requires a Node-based workspace extension host to run a local AI CLI."
+    }
+  },
+  "scripts": {
+    "build:webview": "esbuild src/webview/reviewClient.js --bundle --format=iife --target=es2022 --banner:js='/* Generated from src/webview/reviewClient.js; do not edit. */' --outfile=media/review.js",
+    "compile": "npm run build:webview && tsc -p .",
+    "watch": "node scripts/watch.mjs",
+    "test": "npm run compile && tsc -p tsconfig.test.json && node --test out/test/*.test.js out/test/**/*.test.js",
+    "package": "npm run compile && vsce package"
+  },
+  "dependencies": {
+    "mdast-util-from-markdown": "0.8.5"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/vscode": "1.85.0",
+    "@vscode/vsce": "^3.6.1",
+    "esbuild": "0.28.2",
+    "markdown-it": "15.0.2",
+    "markdown-it-task-lists": "2.1.1",
+    "typescript": "^5.9.0"
+  }
+}
