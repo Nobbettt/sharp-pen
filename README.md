@@ -112,7 +112,7 @@ Then paste a draft into any project and ask for proofreading, or run
 The extension supports VS Code's Markdown and plain-text language modes on
 desktop and remote workspace extension hosts. Install it from the
 [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=nobbettt.sharp-pen),
-[Open VSX](https://open-vsx.org/extension/nobbettt/sharp-pen), or a release VSIX.
+or from a release VSIX.
 Open `vscode-extension/`, run `npm install`, and press `F5` in desktop VS Code
 to develop it. See the
 [extension README](vscode-extension/README.md) for requirements, provider and
