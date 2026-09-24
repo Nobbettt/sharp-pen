@@ -91,14 +91,13 @@ test("the analysis right after a fresh probe skips the redundant --version check
   assert.equal(versionCalls, 2, "a later analysis still revalidates the cached probe");
 });
 
-test("a stale probe no longer skips the version recheck", { concurrency: false }, async (t) => {
+test("a stale probe no longer skips the version recheck", { concurrency: false }, async () => {
   const setup = await fixtures();
   try {
     const adapter = new CodexAdapter();
     await setup.set({ output: "__capture__" });
-    t.mock.timers.enable({ apis: ["Date"] });
     assert.equal((await adapter.probe()).available, true);
-    t.mock.timers.tick(2_001);
+    (adapter as any).probedAt -= 2_001;
     await setup.set({ codexVersion: "codex-cli 0.160.0" });
     await assert.rejects(adapter.analyze("outside-git source"), (error: unknown) =>
       error instanceof ProcessRunnerError && error.kind === "launch" && /has not been safety-reviewed/.test(error.message));

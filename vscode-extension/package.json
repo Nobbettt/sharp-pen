@@ -166,7 +166,7 @@
     }
   },
   "scripts": {
-    "build:webview": "esbuild src/webview/reviewClient.js --bundle --format=iife --target=es2022 --banner:js='/* Generated from src/webview/reviewClient.js; do not edit. */' --outfile=media/review.js && esbuild src/webview/settingsClient.js --bundle --format=iife --target=es2022 --banner:js='/* Generated from src/webview/settingsClient.js; do not edit. */' --outfile=media/settings.js",
+    "build:webview": "node scripts/build-webview.mjs",
     "compile": "npm run build:webview && tsc -p .",
     "watch": "node scripts/watch.mjs",
     "test": "npm run compile && tsc -p tsconfig.test.json && node --test out/test/*.test.js out/test/*/*.test.js",

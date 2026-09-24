@@ -156,7 +156,8 @@ process.stdin.on("data", (chunk) => {
 });`);
   const faults = captureProcessFaults();
   try {
-    await assert.rejects(discoverModels("codex"), /Codex model discovery failed/);
+    // The child exit and stdin EPIPE are independent events; either can settle first.
+    await assert.rejects(discoverModels("codex"), /Codex model discovery (failed|ended before returning models)/);
     await waitForLateFaults();
   } finally {
     faults.release();
