@@ -11,6 +11,7 @@
 
 <p align="center">
   <a href="https://nobbettt.github.io/sharp-pen/"><img src="https://img.shields.io/badge/Demo-Live-blue?style=for-the-badge" alt="Live demo"></a>
+  <a href="https://marketplace.visualstudio.com/items?itemName=nobbettt.sharp-pen"><img src="https://img.shields.io/visual-studio-marketplace/v/nobbettt.sharp-pen?style=for-the-badge&amp;logo=visualstudiocode&amp;label=VS%20Code" alt="Install sharp-pen from the VS Code Marketplace"></a>
   <a href="#install"><img src="https://img.shields.io/badge/Claude%20%7C%20ChatGPT%20%7C%20Codex-Plugin-d97757?style=for-the-badge" alt="Claude, ChatGPT and Codex plugin"></a>
   <a href="https://github.com/Nobbettt/sharp-pen/releases/latest/download/sharp-pen-latest.zip"><img src="https://img.shields.io/badge/Download-Skill%20.zip-green?style=for-the-badge&logo=github&logoColor=white" alt="Download the skill as a zip"></a>
 </p>
@@ -30,8 +31,9 @@ It is packaged as an agent skill and plugin: a folder with instructions and two
 small Python scripts that work in Claude, ChatGPT, Codex, Copilot CLI and other
 clients that read the skill format.
 
-There is also a separate [VS Code extension](vscode-extension/README.md) for
-reviewing Markdown and plain-text editors with a user-installed local AI CLI.
+sharp-pen is also available on the
+[VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=nobbettt.sharp-pen)
+for reviewing Markdown and plain-text editors with a user-installed local AI CLI.
 
 Two passes, toggled in the page:
 
@@ -66,6 +68,20 @@ No install needed: the **[live demo](https://nobbettt.github.io/sharp-pen/)** is
 a 400-word blog draft reviewed by sharp-pen. Toggle between Level 1 and Level 2, click a highlight to
 accept it, open a dropdown where more than one phrasing fits, then download the
 result.
+
+## VS Code extension
+
+Install sharp-pen from the
+[VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=nobbettt.sharp-pen)
+to review Markdown and plain-text files without leaving VS Code. The extension
+keeps the source editor open beside an interactive preview, where you can inspect
+suggestions, choose alternatives, and apply only the changes you want.
+
+![sharp-pen in VS Code: a Markdown source file beside the interactive draft and suggested-text review panes](docs/assets/vs-code-use.png)
+
+It runs your chosen local AI CLI on the desktop or remote workspace extension
+host. See the [extension README](vscode-extension/README.md) for supported
+clients, model selection, remote setup, and privacy details.
 
 ## Install
 
@@ -106,17 +122,6 @@ into `~/.agents/skills/`, or `.agents/skills/` at a project root.
 
 Then paste a draft into any project and ask for proofreading, or run
 `/sharp-pen:review` followed by the text.
-
-**VS Code extension**
-
-The extension supports VS Code's Markdown and plain-text language modes on
-desktop and remote workspace extension hosts. Install it from the
-[VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=nobbettt.sharp-pen),
-or from a release VSIX.
-Open `vscode-extension/`, run `npm install`, and press `F5` in desktop VS Code
-to develop it. See the
-[extension README](vscode-extension/README.md) for requirements, provider and
-model selection, remote-host setup, and privacy details.
 
 **Other clients (Copilot CLI, …)** — unzip the same release into your client's
 skills directory so it contains a `sharp-pen/` folder with `SKILL.md` at its
