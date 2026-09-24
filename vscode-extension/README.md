@@ -9,6 +9,16 @@ document until **Apply**, which writes them as one undoable VS Code edit; task
 checkboxes and code-block language selectors in the preview are the exception
 and edit their source marker immediately, each as its own undoable edit.
 
+## See it in action
+
+**Split review** — compare the staged draft and suggested result side by side.
+
+![sharp-pen split review in VS Code: Markdown source beside the draft and suggested-text panes](https://raw.githubusercontent.com/Nobbettt/sharp-pen/main/docs/assets/vs-code-use.png)
+
+**Inline review** — work through every proposed change in one rendered document.
+
+![sharp-pen inline review in VS Code: Markdown source beside an interactive rendered review](https://raw.githubusercontent.com/Nobbettt/sharp-pen/main/docs/assets/vs-code-use-inline.png)
+
 ## Why sharp-pen
 
 - Keep your voice. Level 1 catches spelling, grammar, punctuation, and other
