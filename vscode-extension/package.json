@@ -1,0 +1,196 @@
+{
+  "name": "sharp-pen",
+  "displayName": "sharp-pen",
+  "description": "Review Markdown and plain-text writing with your local AI CLI.",
+  "version": "0.1.0",
+  "publisher": "nobbettt",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Nobbettt/sharp-pen.git"
+  },
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "extensionKind": [
+    "workspace"
+  ],
+  "categories": [
+    "Other"
+  ],
+  "keywords": [
+    "proofreading",
+    "grammar",
+    "writing",
+    "markdown"
+  ],
+  "main": "./out/extension.js",
+  "icon": "media/icon-128.png",
+  "contributes": {
+    "commands": [
+      {
+        "command": "sharpPen.openReview",
+        "title": "sharp-pen: Open Review",
+        "icon": "$(search-sparkle)"
+      },
+      {
+        "command": "sharpPen.analyze",
+        "title": "sharp-pen: Analyze"
+      },
+      {
+        "command": "sharpPen.cancelAnalysis",
+        "title": "sharp-pen: Cancel Analysis"
+      },
+      {
+        "command": "sharpPen.selectModel",
+        "title": "sharp-pen: Select Model..."
+      },
+      {
+        "command": "sharpPen.refreshModels",
+        "title": "sharp-pen: Refresh Models"
+      },
+      {
+        "command": "sharpPen.openSettings",
+        "title": "sharp-pen: Open Settings"
+      },
+      {
+        "command": "sharpPen.zoomIn",
+        "title": "sharp-pen: Zoom In Preview"
+      },
+      {
+        "command": "sharpPen.zoomOut",
+        "title": "sharp-pen: Zoom Out Preview"
+      },
+      {
+        "command": "sharpPen.zoomReset",
+        "title": "sharp-pen: Reset Preview Zoom"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "sharpPen.zoomIn",
+        "key": "ctrl+=",
+        "mac": "cmd+=",
+        "when": "activeWebviewPanelId == 'sharpPen.review'"
+      },
+      {
+        "command": "sharpPen.zoomIn",
+        "key": "ctrl+shift+=",
+        "mac": "cmd+shift+=",
+        "when": "activeWebviewPanelId == 'sharpPen.review'"
+      },
+      {
+        "command": "sharpPen.zoomIn",
+        "key": "ctrl+numpad_add",
+        "mac": "cmd+numpad_add",
+        "when": "activeWebviewPanelId == 'sharpPen.review'"
+      },
+      {
+        "command": "sharpPen.zoomOut",
+        "key": "ctrl+-",
+        "mac": "cmd+-",
+        "when": "activeWebviewPanelId == 'sharpPen.review'"
+      },
+      {
+        "command": "sharpPen.zoomOut",
+        "key": "ctrl+shift+-",
+        "mac": "cmd+shift+-",
+        "when": "activeWebviewPanelId == 'sharpPen.review'"
+      },
+      {
+        "command": "sharpPen.zoomOut",
+        "key": "ctrl+numpad_subtract",
+        "mac": "cmd+numpad_subtract",
+        "when": "activeWebviewPanelId == 'sharpPen.review'"
+      },
+      {
+        "command": "sharpPen.zoomReset",
+        "key": "ctrl+0",
+        "mac": "cmd+0",
+        "when": "activeWebviewPanelId == 'sharpPen.review'"
+      },
+      {
+        "command": "sharpPen.zoomReset",
+        "key": "ctrl+numpad0",
+        "mac": "cmd+numpad0",
+        "when": "activeWebviewPanelId == 'sharpPen.review'"
+      }
+    ],
+    "menus": {
+      "editor/title": [
+        {
+          "command": "sharpPen.openReview",
+          "when": "editorLangId == markdown || editorLangId == plaintext",
+          "group": "navigation@100"
+        }
+      ],
+      "editor/context": [
+        {
+          "command": "sharpPen.openReview",
+          "when": "editorLangId == markdown || editorLangId == plaintext",
+          "group": "navigation@100"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "sharpPen.openReview",
+          "when": "editorLangId == markdown || editorLangId == plaintext"
+        },
+        {
+          "command": "sharpPen.analyze",
+          "when": "editorLangId == markdown || editorLangId == plaintext"
+        },
+        {
+          "command": "sharpPen.zoomIn",
+          "when": "activeWebviewPanelId == 'sharpPen.review'"
+        },
+        {
+          "command": "sharpPen.zoomOut",
+          "when": "activeWebviewPanelId == 'sharpPen.review'"
+        },
+        {
+          "command": "sharpPen.zoomReset",
+          "when": "activeWebviewPanelId == 'sharpPen.review'"
+        }
+      ]
+    }
+  },
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": "limited",
+      "description": "sharp-pen can open a review in untrusted workspaces, but analysis is unavailable until the workspace is trusted."
+    },
+    "virtualWorkspaces": {
+      "supported": false,
+      "description": "sharp-pen requires a Node-based workspace extension host to run a local AI CLI."
+    }
+  },
+  "scripts": {
+    "build:webview": "node scripts/build-webview.mjs",
+    "compile": "npm run build:webview && tsc -p .",
+    "watch": "node scripts/watch.mjs",
+    "test": "npm run compile && tsc -p tsconfig.test.json && node --test out/test/*.test.js out/test/*/*.test.js",
+    "package": "npm run compile && vsce package --baseContentUrl https://github.com/Nobbettt/sharp-pen/blob/main/vscode-extension --baseImagesUrl https://github.com/Nobbettt/sharp-pen/raw/main/vscode-extension"
+  },
+  "dependencies": {
+    "mdast-util-from-markdown": "0.8.5",
+    "mdast-util-gfm-strikethrough": "0.2.3",
+    "mdast-util-gfm-table": "0.1.6",
+    "mdast-util-gfm-task-list-item": "0.1.6",
+    "micromark-extension-gfm-strikethrough": "0.6.5",
+    "micromark-extension-gfm-table": "0.4.3",
+    "micromark-extension-gfm-task-list-item": "0.3.3",
+    "parse-entities": "2.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/vscode": "1.85.0",
+    "@vscode/vsce": "^3.6.1",
+    "esbuild": "0.28.2",
+    "highlight.js": "11.12.0",
+    "markdown-it": "15.0.2",
+    "markdown-it-task-lists": "2.1.1",
+    "ovsx": "1.2.0",
+    "typescript": "^5.9.0"
+  }
+}
