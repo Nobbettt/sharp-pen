@@ -1,5 +1,6 @@
 import type { CliId } from "./types";
 import { spawnProcessTree } from "./processTree";
+import { runProcess } from "./processRunner";
 import { isModelId } from "./modelId";
 
 const timeoutMs = 8_000;
@@ -9,10 +10,12 @@ const pageSize = 50;
 const modelLimit = 200;
 
 // Codex app-server 0.155.1 requires these fields during initialize.
-export const codexInitializeParams = {
-  clientInfo: { name: "sharp-pen", title: null, version: "0.1.0" },
-  capabilities: { experimentalApi: false, requestAttestation: false },
-};
+export function codexInitializeParams(extensionVersion: string): Record<string, unknown> {
+  return {
+    clientInfo: { name: "sharp-pen", title: null, version: extensionVersion },
+    capabilities: { experimentalApi: false, requestAttestation: false },
+  };
+}
 
 export const codexInitializedNotification = { jsonrpc: "2.0", method: "initialized" };
 
@@ -21,7 +24,7 @@ export function codexModelListParams(cursor?: string): Record<string, unknown> {
 }
 
 export interface ModelDiscoverySource {
-  (client: CliId, signal?: AbortSignal): Promise<readonly string[]>;
+  (client: CliId, extensionVersion: string, signal?: AbortSignal): Promise<readonly string[]>;
 }
 
 /** Caches only successful lists for this extension-host session. */
@@ -29,7 +32,7 @@ export class ModelDiscovery {
   private readonly cache = new Map<CliId, readonly string[]>();
   private readonly aborts = new Set<AbortController>();
 
-  constructor(private readonly source: ModelDiscoverySource = discoverModels) {}
+  constructor(private readonly source: ModelDiscoverySource = discoverModels, private readonly extensionVersion = "0.0.0") {}
 
   async list(client: CliId, refresh = false, signal?: AbortSignal): Promise<readonly string[]> {
     if (signal?.aborted) throw new Error("Model discovery was cancelled.");
@@ -39,7 +42,7 @@ export class ModelDiscovery {
     const cancel = () => abort.abort();
     signal?.addEventListener("abort", cancel, { once: true });
     try {
-      const models = unique(await this.source(client, abort.signal));
+      const models = unique(await this.source(client, this.extensionVersion, abort.signal));
       this.cache.set(client, models);
       return models;
     } finally {
@@ -59,14 +62,23 @@ export class ModelDiscovery {
   }
 }
 
-export async function discoverModels(client: CliId, signal?: AbortSignal): Promise<readonly string[]> {
+export async function discoverModels(client: CliId, extensionVersion = "0.0.0", signal?: AbortSignal): Promise<readonly string[]> {
   switch (client) {
-    case "codex": return discoverCodexModels(signal);
-    case "opencode": throw new Error("OpenCode model discovery is unavailable because OpenCode is unsupported.");
+    case "codex": return discoverCodexModels(extensionVersion, signal);
+    case "opencode": {
+      const result = await runProcess({ executable: "opencode", args: ["models", "--pure"], signal, timeoutMs, stdoutLimit: outputLimit, stderrLimit: outputLimit });
+      const models = parseOpenCodeModels(result.stdout);
+      if (!models.length) throw new Error("OpenCode did not return any supported models.");
+      return models;
+    }
     // These clients expose account-aware pickers only in their TUI. Never scrape it.
     case "claude": return ["sonnet", "opus", "haiku"];
     case "copilot": return ["auto"];
   }
+}
+
+export function parseOpenCodeModels(stdout: string): string[] {
+  return unique(stdout.split(/\r?\n/).map((line) => line.trim()).filter(Boolean));
 }
 
 /** Parses only visible, bounded IDs from a Codex model/list result. */
@@ -87,7 +99,7 @@ function unique(models: readonly string[]): string[] {
   return [...new Set(models.filter(isModelId))].slice(0, modelLimit);
 }
 
-function discoverCodexModels(signal?: AbortSignal): Promise<readonly string[]> {
+function discoverCodexModels(extensionVersion: string, signal?: AbortSignal): Promise<readonly string[]> {
   if (signal?.aborted) return Promise.reject(new Error("Model discovery was cancelled."));
   return new Promise((resolve, reject) => {
     let processTree;
@@ -104,6 +116,7 @@ function discoverCodexModels(signal?: AbortSignal): Promise<readonly string[]> {
     let buffer = "";
     let nextId = 1;
     let pages = 0;
+    let stopError: Error | undefined;
     const models: string[] = [];
     let killTimer: NodeJS.Timeout | undefined;
     const finish = (error?: Error) => {
@@ -122,8 +135,11 @@ function discoverCodexModels(signal?: AbortSignal): Promise<readonly string[]> {
     const stop = (error?: Error) => {
       if (settled || stopping) return;
       stopping = true;
+      stopError = error;
       child.stdin.destroy(); child.stdout.destroy(); child.stderr.destroy();
       processTree.terminate();
+      // The TERM was already sent; `closed` finishes as soon as it fires. This timer is only the
+      // fallback for descendants that inherited stdio and don't exit on their own.
       killTimer = setTimeout(() => { processTree.forceKill(); finish(error); }, 1_000);
     };
     const cancel = () => stop(new Error("Model discovery was cancelled."));
@@ -161,7 +177,10 @@ function discoverCodexModels(signal?: AbortSignal): Promise<readonly string[]> {
     const stdinError = () => {
       if (!settled && !stopping) stop(new Error("Codex model discovery failed."));
     };
-    const closed = () => { if (!settled && !stopping) finish(new Error("Codex model discovery ended before returning models.")); };
+    const closed = () => {
+      if (settled) return;
+      finish(stopping ? stopError : new Error("Codex model discovery ended before returning models."));
+    };
     const stdoutData = (chunk: Buffer) => {
       if (settled) return;
       if ((bytes += chunk.length) > outputLimit) return stop(new Error("Codex model discovery returned too much output."));
@@ -181,6 +200,6 @@ function discoverCodexModels(signal?: AbortSignal): Promise<readonly string[]> {
     child.stderr.on("data", stderrData);
     signal?.addEventListener("abort", cancel, { once: true });
     if (signal?.aborted) return cancel();
-    request("initialize", codexInitializeParams);
+    request("initialize", codexInitializeParams(extensionVersion));
   });
 }

@@ -13,7 +13,7 @@ const response = {
 
 test("Markdown reconciliation invalidates an oversized source permanently", () => {
   const source = "teh teh";
-  const review = createReview(source, { uri: "file:///draft", documentVersion: 1, sourceHash: "hash", format: "markdown" }, validateAndResolve(source, response, "markdown"));
+  const review = createReview(source, { documentVersion: 1, format: "markdown" }, validateAndResolve(source, response, "markdown"));
   const oversized = "x".repeat(REVIEW_LIMITS.source + 1);
   const failed = reconcileSourceChanges(review, { "l1-1": { option: 0 } }, [
     { rangeOffset: 0, rangeLength: source.length, text: oversized },
@@ -33,7 +33,7 @@ test("Markdown reconciliation invalidates an oversized source permanently", () =
 
 test("Markdown reconciliation invalidates a structurally complex source", () => {
   const source = "teh";
-  const review = createReview(source, { uri: "file:///draft", documentVersion: 1, sourceHash: "hash", format: "markdown" }, validateAndResolve(source, {
+  const review = createReview(source, { documentVersion: 1, format: "markdown" }, validateAndResolve(source, {
     title: "Draft", level1: [{ from: source, options: ["the"], note: "Typo" }], level2: [],
   }, "markdown"));
   const complex = "*".repeat(4_097);
@@ -46,7 +46,7 @@ test("Markdown reconciliation invalidates a structurally complex source", () => 
 
 test("plaintext reconciliation invalidates an oversized source", () => {
   const source = "teh";
-  const review = createReview(source, { uri: "file:///draft", documentVersion: 1, sourceHash: "hash" }, validateAndResolve(source, {
+  const review = createReview(source, { documentVersion: 1 }, validateAndResolve(source, {
     title: "Draft", level1: [{ from: source, options: ["the"], note: "Typo" }], level2: [],
   }));
   const oversized = "x".repeat(REVIEW_LIMITS.source + 1);

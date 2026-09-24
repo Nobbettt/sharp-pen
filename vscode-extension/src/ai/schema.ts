@@ -19,7 +19,9 @@ const suggestion = {
 
 /** The provider-neutral schema embedded in every analysis prompt. */
 export const agentResponseSchema = {
-  $schema: "https://json-schema.org/draft/2020-12/schema",
+  // Claude Code's --json-schema accepts draft-07; the keywords below are shared
+  // with the provider-neutral prompt schema.
+  $schema: "http://json-schema.org/draft-07/schema#",
   type: "object",
   additionalProperties: false,
   required: ["title", "level1", "level2"],

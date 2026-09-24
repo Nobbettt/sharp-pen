@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { maskMarkdownForPrompt, ReviewValidationError, validateAndResolve } from "../../src/review/validate";
+import { maskMarkdownForPrompt, validateAndResolve } from "../../src/review/validate";
 
 const response = (from: string) => ({ title: "Draft", level1: [{ from, options: ["replacement"], note: "Typo" }], level2: [] });
 
@@ -27,7 +27,9 @@ test("Markdown masks reference definitions in blockquotes and list containers", 
   assert.doesNotMatch(masked, /quote-secret|multiline-secret|nested-secret|list-secret|list-tab-secret|mixed-secret|tab-secret|\[quote\]:|\[list\]:/);
   assert.match(masked, /Later teh prose remains available/);
   for (const secret of ["quote-secret", "multiline-secret", "nested-secret", "list-secret", "list-tab-secret", "mixed-secret", "tab-secret"]) {
-    assert.throws(() => validateAndResolve(source, response(secret), "markdown"), ReviewValidationError);
+    const result = validateAndResolve(source, response(secret), "markdown");
+    assert.deepEqual(result.level1, []);
+    assert.equal(result.skipped, 1);
   }
   assert.doesNotThrow(() => validateAndResolve(source, response("teh prose"), "markdown"));
 });

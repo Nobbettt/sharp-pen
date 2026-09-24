@@ -26,7 +26,7 @@ Sources:
 ### Applying edits
 
 `TextEditor.edit` supplies native document integration and undo/redo for one editor
-transaction. Sharp Pen should track document change ranges, retain unaffected
+transaction. sharp-pen should track document change ranges, retain unaffected
 suggestions, and recheck the editor version and each accepted range's exact text
 immediately before submitting the edit.
 
@@ -35,9 +35,9 @@ Source: [VS Code API — `TextEditor.edit`](https://code.visualstudio.com/api/re
 ### Settings
 
 Contributed configuration appears in native VS Code Settings and can use machine,
-resource, or language scopes. Sharp Pen keeps process-routing settings out of that
+resource, or language scopes. sharp-pen keeps process-routing settings out of that
 configuration and in extension global state, so workspace settings cannot redirect
-execution; its lone contributed row is a static command-link launcher.
+execution. sharp-pen does not contribute native operational settings.
 
 Source: [Configuration contribution point](https://code.visualstudio.com/api/references/contribution-points#contributes.configuration)
 
@@ -85,13 +85,16 @@ catalogs change. The following matrix captures the current official interfaces.
 |---:|---|---|---|---|---|
 | 1 | Claude Code | `claude -p` | `--output-format json`; `--json-schema` where supported | Existing Claude Code login/provider credentials | `--model` alias or ID |
 | 2 | Codex CLI | `codex exec --sandbox read-only` | `--json`; `--output-schema` and output file where supported | Existing Codex login or CLI-supported environment credential | `--model` |
-| 3 | GitHub Copilot CLI | `copilot -p ... -s` | No stable structured-output flag found; require sole JSON and validate | Existing OAuth or Copilot-supported token | `--model` |
-| — | OpenCode | Unsupported until it can be isolated safely | — | — |
+| 3 | GitHub Copilot CLI | piped stdin with `--silent --output-format json` and every 1.0.88 tool excluded | JSONL assistant events | Existing OAuth or Copilot-supported token | `--model` |
+| 4 | OpenCode | `opencode run --pure --format json --agent sharp-pen --file ...` | JSONL text events followed by a clean stop | Existing OpenCode auth store/provider credentials | `--model` |
 
 ### Claude Code
 
 - Use print mode and no permission prompts.
-- Use a JSON schema when the installed version supports it.
+- Require `--json-schema` and pass sharp-pen's serialized draft-07 response
+  schema in JSON print mode. Accept only the successful nonempty
+  `structured_output` object from the JSON envelope; never fall back to its
+  free-form `result` text.
 - Bound turns and cost where available.
 - Do not use `--dangerously-skip-permissions`.
 
@@ -103,6 +106,8 @@ Source: [Claude Code CLI reference](https://code.claude.com/docs/en/cli-usage)
 - Use the installed CLI's structured output/schema features where available.
 - Reuse CLI authentication; do not inspect its credential files.
 - Capability-check flags against `codex exec --help`.
+- Web search is enabled by default independently of the disabled-feature list;
+  pass `--config web_search=disabled` to turn it off.
 
 Source: [Codex non-interactive mode](https://learn.chatgpt.com/docs/non-interactive-mode)
 
@@ -110,8 +115,8 @@ Source: [Codex non-interactive mode](https://learn.chatgpt.com/docs/non-interact
 
 - Use programmatic prompt mode and suppress non-answer display.
 - Do not grant tools or enable autopilot for proofreading.
-- Because official programmatic documentation does not currently define a stable
-  JSON-output flag, prompt for one JSON object and apply the same strict validator.
+- Pin the reviewed 1.0.88 tool catalog, exclude every tool, and accept only its
+  completed tool-free assistant message from JSONL output.
 - Model availability depends on the user's account and policy.
 
 Sources:
@@ -121,43 +126,52 @@ Sources:
 
 ### OpenCode
 
-OpenCode remains intentionally unavailable. Sharp Pen shows that status in its
-client picker and never launches it or discovers its models.
+OpenCode 1.18.32 is supported with a version pin. sharp-pen replaces user and
+project configuration with a deny-all custom agent, disables plugins with
+`--pure`, and supplies the prompt through a private temporary file.
 - [OpenCode models](https://opencode.ai/v2/docs/models)
 - [OpenCode providers](https://opencode.ai/docs/providers)
 
 ## 3. Process and output safety
 
 Node's direct `child_process.spawn` with an executable and argument array avoids
-shell parsing. Sharp Pen should use `shell: false`, fixed adapter flags, bounded
-output, a timeout, abort-driven termination, and no detached process. Source text
-should travel on stdin where supported.
+shell parsing. sharp-pen should use `shell: false`, fixed adapter flags, bounded
+output, a timeout, and abort-driven termination. On POSIX it should spawn into
+its own process group (detached only so a cancel/timeout can signal the whole
+tree, never unref'd or left running); source text should travel on stdin where
+supported.
 
 Source: [Node.js child process API](https://nodejs.org/api/child_process.html)
 
 AI output is not trusted merely because it came from a configured client. The
-extension must parse it as data, enforce the Sharp Pen schema, resolve exact source
+extension must parse it as data, enforce the sharp-pen schema, resolve exact source
 anchors, reject overlaps, and render text through DOM `textContent` rather than
 injecting model-produced HTML.
+
+Parser, schema, and CLI diagnostics remain internal: raw model output is never
+logged, and UI failure messages are generic and actionable so internal details do
+not become part of the user-facing contract.
 
 ## 4. Dynamic model discovery
 
 Native VS Code configuration dropdowns come from static `enum` values contributed
-in `package.json`; the public API cannot replace them at runtime. Sharp Pen instead
-uses a custom Quick Pick and extension global state for operational settings. The
-contributed native setting is only a static command-link launcher.
+in `package.json`; the public API cannot replace them at runtime. sharp-pen instead
+uses a dedicated webview settings panel and extension global state for operational
+settings. sharp-pen therefore uses its dedicated panel rather than a native
+settings contribution.
 
 Sources:
 
 - [VS Code configuration contributions](https://code.visualstudio.com/api/references/contribution-points#contributes.configuration)
-- [VS Code `window.showQuickPick`](https://code.visualstudio.com/api/references/vscode-api#window.showQuickPick)
+- [VS Code `WebviewPanel`](https://code.visualstudio.com/api/references/vscode-api#WebviewPanel)
+- [VS Code `window.showQuickPick`](https://code.visualstudio.com/api/references/vscode-api#window.showQuickPick) (standalone Select Model command)
 
 | Client | Supported discovery | Result quality | Design fallback |
 |---|---|---|---|
 | Claude Code | No documented noninteractive list; `/model` is interactive | Cannot query the user's available catalog safely | Default, stable aliases/recent values, manual ID |
 | Codex | Short-lived `codex app-server`, then JSON-RPC `model/list` | Structured, paginated, account/provider-aware catalog | Preserve current value and offer manual ID on RPC/auth failure |
 | GitHub Copilot CLI | No documented noninteractive list; model selection is interactive | Cannot query account/org policy safely | `auto`, recent values, manual ID |
-| OpenCode | None | Unsupported | Shown as unavailable; never launch or discover it |
+| OpenCode | `opencode models --pure` | Plain bounded model IDs | Preserve current value and offer manual ID on failure |
 
 Model discovery never launches an inference request and never passes credentials on
 the command line. A listed model is still only a candidate: provider permissions
@@ -177,10 +191,11 @@ Sources:
 
 - CLI flags may differ by installed version; adapters must probe capabilities.
 - Provider model lists are dynamic and may depend on account policy.
-- Copilot does not currently expose a documented stable JSON-result flag.
+- Copilot's JSONL shape and tool catalog may change between versions, so its
+  adapter remains pinned to the reviewed 1.0.88 release.
 - OpenCode documentation spans current and development URLs.
 - No provider documents a complete cross-platform signal or exit-code contract;
-  Sharp Pen must own cancellation and classify nonzero exit, error events, timeout,
+  sharp-pen must own cancellation and classify nonzero exit, error events, timeout,
   and parse failure itself.
 
 These are reasons for small independent adapters, not for a generalized command

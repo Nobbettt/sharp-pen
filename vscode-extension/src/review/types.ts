@@ -31,14 +31,12 @@ export interface ResolvedReview {
   title: string;
   level1: Suggestion[];
   level2: Suggestion[];
+  /** Suggestions the agent proposed but whose anchor could not be placed without conflict. */
+  skipped: number;
 }
 
 export interface Review {
-  schemaVersion: 1;
   format: "markdown" | "plaintext";
-  uri: string;
-  analysisDocumentVersion: number;
-  analysisSourceHash: string;
   currentDocumentVersion: number;
   currentSource: string;
   level1: Suggestion[];
@@ -46,9 +44,7 @@ export interface Review {
 }
 
 export interface ReviewMetadata {
-  uri: string;
   documentVersion: number;
-  sourceHash: string;
   format?: "markdown" | "plaintext";
 }
 

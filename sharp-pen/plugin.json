@@ -1,7 +1,7 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "sharp-pen",
-  "description": "Grammarly-style proofreading that never rewrites you. Hand it a draft and get back an interactive two-pane page: your text on the left, every suggestion on the right, each one clickable. Accept changes one at a time, or choose between alternative phrasings from a dropdown. Two passes — spelling and grammar, then sentence construction. It corrects form, never substance: it won't change what a sentence claims, strip a hedge, or make casual prose corporate.",
+  "description": "Focused proofreading that never rewrites you. Hand it a draft and get back an interactive two-pane page: your text on the left, every suggestion on the right, each one clickable. Accept changes one at a time, or choose between alternative phrasings from a dropdown. Two passes — spelling and grammar, then sentence construction. It corrects form, never substance: it won't change what a sentence claims, strip a hedge, or make casual prose corporate.",
   "author": {
     "name": "Norbert Laszlo",
     "url": "https://norbertlaszlo.com"

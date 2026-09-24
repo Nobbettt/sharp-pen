@@ -6,6 +6,14 @@ const defaultTimeoutMs = 120_000;
 const defaultStdoutLimit = 1_000_000;
 const defaultStderrLimit = 64_000;
 const killGraceMs = 1_000;
+const minAnalysisTimeoutMs = 120_000;
+const maxAnalysisTimeoutMs = 600_000;
+const analysisTimeoutMsPerKb = 2_000;
+
+/** Scales with prompt size: reasoning models can take longer than the default on a large document. */
+export function analysisTimeoutMs(promptLength: number): number {
+  return Math.min(maxAnalysisTimeoutMs, minAnalysisTimeoutMs + Math.ceil(promptLength / 1024) * analysisTimeoutMsPerKb);
+}
 
 export type ProcessFailureKind = "aborted" | "launch" | "timeout" | "output" | "exit";
 
@@ -32,16 +40,16 @@ export interface ProcessResult {
   exitCode: number;
 }
 
-/** Runs one of Sharp Pen's fixed executables. Prompts never become shell input or argv. */
+/** Runs one of sharp-pen's fixed executables. Prompts never become shell input or argv. */
 export function runProcess(request: ProcessRequest): Promise<ProcessResult> {
-  if (!executableNames.has(request.executable)) throw new ProcessRunnerError("launch", "Sharp Pen cannot launch that AI client.");
-  if (request.signal?.aborted) return Promise.reject(new ProcessRunnerError("aborted", "Sharp Pen analysis was cancelled."));
+  if (!executableNames.has(request.executable)) throw new ProcessRunnerError("launch", "sharp-pen cannot launch that AI client.");
+  if (request.signal?.aborted) return Promise.reject(new ProcessRunnerError("aborted", "sharp-pen analysis was cancelled."));
 
   const timeoutMs = request.timeoutMs ?? defaultTimeoutMs;
   const stdoutLimit = request.stdoutLimit ?? defaultStdoutLimit;
   const stderrLimit = request.stderrLimit ?? defaultStderrLimit;
   if (timeoutMs <= 0 || stdoutLimit <= 0 || stderrLimit <= 0) {
-    return Promise.reject(new ProcessRunnerError("launch", "Sharp Pen analysis has invalid process limits."));
+    return Promise.reject(new ProcessRunnerError("launch", "sharp-pen analysis has invalid process limits."));
   }
 
   return new Promise<ProcessResult>((resolve, reject) => {
@@ -49,7 +57,7 @@ export function runProcess(request: ProcessRequest): Promise<ProcessResult> {
     let processTree;
     try {
       // A neutral cwd prevents source documents outside a Git workspace from becoming CLI workspace input.
-      processTree = spawnProcessTree(request.executable, request.args);
+      processTree = spawnProcessTree(request.executable, request.args, request.input);
     } catch {
       reject(new ProcessRunnerError("launch", `${label} could not be started. Check that it is installed on this extension host.`));
       return;
@@ -87,7 +95,7 @@ export function runProcess(request: ProcessRequest): Promise<ProcessResult> {
       // Descendants can retain the stdio handles, so close is not a settlement guarantee.
       killTimer = setTimeout(() => { processTree.forceKill(); finish(failure); }, killGraceMs);
     };
-    const abort = () => stop(new ProcessRunnerError("aborted", "Sharp Pen analysis was cancelled."));
+    const abort = () => stop(new ProcessRunnerError("aborted", "sharp-pen analysis was cancelled."));
     const timeout = setTimeout(() => stop(new ProcessRunnerError("timeout", `${label} timed out. Check its sign-in and selected model, then try again.`)), timeoutMs);
 
     const launchError = () => finish(new ProcessRunnerError("launch", `${label} could not be started. Check that it is installed on this extension host.`));
@@ -127,7 +135,7 @@ export function runProcess(request: ProcessRequest): Promise<ProcessResult> {
     request.signal?.addEventListener("abort", abort, { once: true });
     if (request.signal?.aborted) return abort();
     try {
-      child.stdin.end(request.input ?? "", "utf8");
+      child.stdin.end(processTree.inputConsumed ? "" : request.input ?? "", "utf8");
     } catch {
       stop(new ProcessRunnerError("launch", `${label} could not receive the analysis request.`));
     }

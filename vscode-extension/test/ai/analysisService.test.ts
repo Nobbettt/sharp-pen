@@ -3,6 +3,7 @@ import test from "node:test";
 
 import { createAnalysisRunner } from "../../src/ai/analysisService";
 import { modelPickerOptions } from "../../src/ai/modelScope";
+import { ProcessRunnerError } from "../../src/ai/processRunner";
 import type { CliAdapter } from "../../src/ai/types";
 
 test("analysis runner masks the prompt, keeps the selected adapter, and parses its final JSON", async () => {
@@ -36,6 +37,36 @@ test("analysis runner leaves strict schema validation to the controller", async 
   const runner = createAnalysisRunner({ settings: { getConfig: () => ({ aiClient: "claude", previewTheme: "light" }), getModel: () => "" }, async select() { return adapter; } });
   const result = await runner({ title: "Draft", format: "plaintext", source: "Draft", uri: "file:///draft", documentVersion: 1 }, new AbortController().signal);
   assert.deepEqual(result, { title: "Draft", level1: [], level2: [], extra: true });
+});
+
+test("Copilot retries one malformed response and validates the replacement", async () => {
+  let calls = 0;
+  const adapter: CliAdapter = {
+    id: "copilot",
+    async probe() { return { available: true, capabilities: new Set() }; },
+    async analyze(prompt) {
+      calls += 1;
+      if (calls === 1) return "not JSON";
+      assert.match(prompt, /Final reminder/);
+      return '{"title":"Draft","level1":[],"level2":[]}';
+    },
+  };
+  const runner = createAnalysisRunner({ settings: { getConfig: () => ({ aiClient: "copilot", previewTheme: "light" }), getModel: () => "" }, async select() { return adapter; } });
+  assert.deepEqual(await runner({ title: "Draft", format: "plaintext", source: "Draft", uri: "file:///draft", documentVersion: 1 }, new AbortController().signal), { title: "Draft", level1: [], level2: [] });
+  assert.equal(calls, 2);
+});
+
+test("Copilot reports a safe specific error after two malformed responses", async () => {
+  const adapter: CliAdapter = {
+    id: "copilot",
+    async probe() { return { available: true, capabilities: new Set() }; },
+    async analyze() { return '{"message":"wrong contract"}'; },
+  };
+  const runner = createAnalysisRunner({ settings: { getConfig: () => ({ aiClient: "copilot", previewTheme: "light" }), getModel: () => "" }, async select() { return adapter; } });
+  await assert.rejects(
+    runner({ title: "Draft", format: "plaintext", source: "Draft", uri: "file:///draft", documentVersion: 1 }, new AbortController().signal),
+    (error: unknown) => error instanceof ProcessRunnerError && /could not read/.test(error.message),
+  );
 });
 
 test("provider-scoped models never cross to a resolved auto client", async () => {

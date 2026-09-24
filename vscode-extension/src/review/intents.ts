@@ -8,11 +8,17 @@ export type ReviewIntent =
   | { type: "acceptAll"; level: Level }
   | { type: "reset"; level: Level }
   | { type: "apply" }
+  | { type: "scrollSource"; ratio: number }
+  | { type: "toggleTask"; offset: number; checked: boolean; documentVersion: number }
+  | { type: "setCodeFenceLanguage"; fenceIndex: number; languageId: string; documentVersion: number }
   | { type: "openSettings" };
 
 const fields: Record<ReviewIntent["type"], readonly string[]> = {
   ready: ["type"], analyze: ["type"], cancel: ["type"], apply: ["type"], openSettings: ["type"],
+  scrollSource: ["type", "ratio"],
   choose: ["type", "suggestionId", "option"], acceptAll: ["type", "level"], reset: ["type", "level"],
+  toggleTask: ["type", "offset", "checked", "documentVersion"],
+  setCodeFenceLanguage: ["type", "fenceIndex", "languageId", "documentVersion"],
 };
 
 /** Treat webview messages as untrusted data, including unknown fields. */
@@ -27,6 +33,21 @@ export function parseReviewIntent(value: unknown): ReviewIntent | undefined {
     case "cancel": return { type: "cancel" };
     case "apply": return { type: "apply" };
     case "openSettings": return { type: "openSettings" };
+    case "scrollSource":
+      return typeof input.ratio === "number" && Number.isFinite(input.ratio) && input.ratio >= 0 && input.ratio <= 1
+        ? { type: "scrollSource", ratio: input.ratio }
+        : undefined;
+    case "toggleTask":
+      return Number.isSafeInteger(input.offset) && (input.offset as number) >= 0 && typeof input.checked === "boolean"
+        && Number.isSafeInteger(input.documentVersion) && (input.documentVersion as number) >= 0
+        ? { type: "toggleTask", offset: input.offset as number, checked: input.checked, documentVersion: input.documentVersion as number }
+        : undefined;
+    case "setCodeFenceLanguage":
+      return Number.isSafeInteger(input.fenceIndex) && (input.fenceIndex as number) >= 0 && typeof input.languageId === "string"
+        && input.languageId.length <= 128
+        && Number.isSafeInteger(input.documentVersion) && (input.documentVersion as number) >= 0
+        ? { type: "setCodeFenceLanguage", fenceIndex: input.fenceIndex as number, languageId: input.languageId, documentVersion: input.documentVersion as number }
+        : undefined;
     case "choose":
       return typeof input.suggestionId === "string" && input.suggestionId.length > 0
         && (input.option === null || (Number.isSafeInteger(input.option) && (input.option as number) >= 0))

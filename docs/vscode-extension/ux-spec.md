@@ -4,10 +4,10 @@ Status: draft 0.1
 
 ## 1. Entry points
 
-- Markdown and plain-text editor title action: pen icon, **Open Sharp Pen Review**
+- Markdown and plain-text editor title action: pen icon, **Open sharp-pen Review**
   tooltip.
-- Markdown and plain-text editor context menu: **Sharp Pen: Open Review**.
-- Command Palette: **Sharp Pen: Open Review**.
+- Markdown and plain-text editor context menu: **sharp-pen: Open Review**.
+- Command Palette: **sharp-pen: Open Review**.
 
 The review opens in a column beside the active source editor. Reinvoking the
 command reveals the existing review for that document.
@@ -48,7 +48,7 @@ Left to right:
 5. **Next**.
 6. **Accept all** for the active level.
 7. **Apply**, disabled until at least one currently valid choice is accepted.
-8. Icon-only settings button that opens Sharp Pen's custom looping Quick Pick.
+8. Icon-only settings button that opens sharp-pen's dedicated settings panel.
 
 Reset is placed in a small overflow menu with **Reset current level** and
 **Reset all**. This keeps the primary toolbar narrow.
@@ -96,8 +96,12 @@ wrap. Analyze, level, view, count, and Apply remain visible.
   not duplicate a source/rendered toggle in version 1.
 - Formatting outside replacement spans remains unchanged.
 - Raw HTML is displayed safely, not executed.
-- Fenced code, inline code, front matter, link destinations, and other excluded
-  regions are rendered but never highlighted as suggestions.
+- Fenced code, inline code, link destinations, and other excluded regions
+  (other than front matter) are rendered but never highlighted as
+  suggestions. Front matter is dropped from every pane instead of rendered,
+  since the panel has no Markdown rule for it and would otherwise show its
+  `---` delimiters and YAML as a bogus rule and heading (see R5-05); VS
+  Code's own preview hides it the same way.
 - Links do not navigate the webview unexpectedly. External navigation requires an
   explicit user action and opens through VS Code.
 - Plain text is escaped and displayed with line breaks and whitespace preserved;
@@ -106,25 +110,37 @@ wrap. Analyze, level, view, count, and Apply remain visible.
 ## 6. Theme behavior
 
 Preview Theme defaults to Light, including when VS Code is dark.
-Dark uses Sharp Pen's dark palette. Auto follows VS Code's colors and high-contrast
+Dark uses sharp-pen's dark palette. Auto follows VS Code's colors and high-contrast
 classes. Insertions and deletions remain distinguishable by both color and text decoration.
 
 ## 7. Settings experience
 
-The preview cog opens Sharp Pen's custom looping Quick Pick. The lone native VS
-Code Settings row is only a static command-link launcher and opens that same menu.
+The preview cog and **sharp-pen: Open Settings** in the Command Palette open the
+same reusable sharp-pen settings panel.
 
 Visible settings:
 
 | Setting | Control | Default | Notes |
 |---|---|---|---|
-| AI client | Quick Pick | Auto | Claude, Codex, Copilot; OpenCode is visible but unavailable |
-| Model | Quick Pick + manual ID | Client default | Saved separately for each provider |
-| Preview theme | Quick Pick | Light | Light, Dark, or Auto (follow VS Code) |
+| AI client | Inline select | Auto | Claude, Codex, Copilot, or OpenCode |
+| Model | Inline select, conditional Other ID field, and Refresh models button | Client default | Saved separately for each provider |
+| Preview theme | Inline select | Light | Light, Dark, or Auto (follow VS Code) |
+
+Fenced code previews include a compact language selector when the source fence can
+be mapped exactly. It updates the first info-string token only; indented code blocks
+remain regular code previews without a selector. Choosing Plain text for a fence
+with metadata writes `plaintext` so the metadata remains intact.
+Supported installed fence languages use local explicit-grammar highlighting; unsupported or very large
+fences retain their safely escaped plain presentation.
 
 VS Code does not support runtime-populated dropdown values in its native Settings
-editor. Operational settings therefore live in extension global state, and both the custom menu
-and **Sharp Pen: Select Model…** use the same native Quick Pick:
+editor. Operational settings therefore live in extension global state. The settings
+panel automatically refreshes models in a trusted workspace when it opens and when
+the client changes. It exposes the client selector, provider-scoped model select
+(client default, discovered choices, saved custom choice, and **Other (specify model
+ID)**), refresh action, and preview-theme selector inline. The Other ID field and
+Save control are hidden until Other is selected. The standalone
+**sharp-pen: Select Model…** command retains its native Quick Pick:
 
 1. Show the effective AI client.
 2. Ask that client's CLI for models when it exposes a supported discovery command
@@ -136,8 +152,8 @@ and **Sharp Pen: Select Model…** use the same native Quick Pick:
 Codex supplies a structured live model list. Claude Code and Copilot currently
 fall back to defaults, stable aliases/recent
 values, and manual model ID because their account-aware lists are interactive-only.
-If discovery fails, the picker keeps the current value and offers retry/manual
-entry; it does not silently change models.
+If discovery fails, the panel and standalone command keep the current value and
+offer manual entry; neither silently changes models.
 
 No prompt text, API key, executable path, arbitrary arguments, temperature, token
 limit, or provider-specific tuning appears in version 1 settings.
@@ -152,14 +168,15 @@ Analyze is the primary action. There is no instructional paragraph.
 ### Analyzing
 
 The current valid review remains visible but read-only if one exists. Analyze
-becomes Cancel. Native cancellable notification progress shows the selected client
-and model.
+becomes Cancel. Native cancellable notification progress shows while analysis runs.
 
 ### Ready
 
 Suggestions and actions are interactive. Apply is disabled until at least one
-suggestion is accepted. Analyze may be disabled when the review exactly matches the
-current document to avoid a redundant run.
+suggestion is accepted. Analyze stays enabled even when the review exactly
+matches the current document, so switching client or model and re-running is
+never blocked; it is explicit and cancellable. Re-analyzing discards every
+staged choice, so when any exist a notice reports how many were lost.
 
 ### Document edited
 
@@ -185,5 +202,22 @@ The author can use VS Code Undo or Analyze again.
   staged and reversible before Apply.
 - Apply requires no modal confirmation because it is one VS Code undo step.
 - Reset requires no confirmation because it affects staged state only.
-- Closing a panel with staged but unapplied choices uses VS Code's standard
-  modal warning: **Discard unapplied Sharp Pen choices?**
+- Closing a panel discards any staged but unapplied choices immediately and
+  silently, with no confirmation prompt. `vscode.WebviewPanel` gives an
+  extension no way to intercept or veto a close, so there is no hook in
+  which to show a warning before the panel — and the staged choices with
+  it — is gone.
+- Closing the source document closes its review the same way — except VS
+  Code also fires the close event, immediately followed by a reopen of a new
+  document object at the same URI, when only the document's language id
+  changes (switching between Markdown and plain text, including VS Code's
+  own automatic language detection). sharp-pen waits a tick for that reopen
+  and rebinds the panel to it instead of closing. The review itself only
+  survives if the format didn't change; a Markdown-to-plain-text switch or
+  back clears it, since its offsets and exclusions were computed for the
+  other format. For every other close, VS Code gives no hook to intercept
+  it, so there is no way to keep the panel open and rebind it to a later
+  reopen of the same document. If staged but unapplied choices existed and
+  the review did not survive, sharp-pen shows a warning naming the source
+  and how many choices were discarded, since the close itself cannot be
+  stopped.

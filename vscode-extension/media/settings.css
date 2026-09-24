@@ -1,0 +1,21 @@
+:root { --sp-bg: var(--vscode-editor-background, #fff); --sp-surface: var(--vscode-sideBar-background, #fafafa); --sp-raised: var(--vscode-editorWidget-background, #fff); --sp-text: var(--vscode-foreground, #171717); --sp-muted: var(--vscode-descriptionForeground, #6b6b6b); --sp-border: var(--vscode-panel-border, #e5e5e5); --sp-input: var(--vscode-input-background, #fff); --sp-button: var(--vscode-button-background, #171717); --sp-button-text: var(--vscode-button-foreground, #fff); --sp-button-hover: var(--vscode-button-hoverBackground, #000); --sp-focus: var(--vscode-focusBorder, #171717); --sp-shadow: var(--vscode-widget-shadow, rgba(0, 0, 0, .08)); --sp-radius: 9px; --sp-radius-sm: 6px; color: var(--sp-text); font-family: var(--vscode-font-family, sans-serif); font-size: var(--vscode-font-size); }
+body.vscode-dark { --sp-bg: #171717; --sp-surface: #1f1f1f; --sp-raised: #242424; --sp-text: #f5f5f5; --sp-muted: #a3a3a3; --sp-border: #3f3f3f; --sp-input: #202020; --sp-button: #f5f5f5; --sp-button-text: #171717; --sp-button-hover: #ffffff; --sp-focus: #ffffff; --sp-shadow: rgba(0, 0, 0, .38); }
+body { margin: 0; padding: 30px; background: var(--sp-bg); }
+main { max-width: 680px; }
+h1 { letter-spacing: -.02em; margin: 0 0 7px; font-size: 1.55em; }
+h2 { margin: 0 0 14px; font-size: 1em; letter-spacing: -.01em; }
+section { background: var(--sp-surface); box-shadow: 0 3px 12px var(--sp-shadow); margin: 20px 0; padding: 18px; border: 1px solid var(--sp-border); border-radius: var(--sp-radius); }
+label { display: block; margin: 14px 0 6px; font-weight: 650; }
+select, input { border-radius: var(--sp-radius-sm); box-sizing: border-box; width: 100%; min-height: 32px; color: var(--sp-text); background: var(--sp-input); border: 1px solid var(--sp-border); padding: 0 9px; }
+button { border-radius: var(--sp-radius-sm); min-height: 32px; color: var(--sp-button-text); background: var(--sp-button); border: 1px solid transparent; padding: 0 12px; cursor: pointer; font-weight: 600; white-space: nowrap; }
+button:hover:not(:disabled) { background: var(--sp-button-hover); }
+button:disabled, input:disabled, select:disabled { opacity: .6; cursor: not-allowed; }
+input:focus-visible, select:focus-visible, button:focus-visible { outline: 2px solid var(--sp-focus); outline-offset: 2px; }
+.row { display: flex; gap: 8px; align-items: center; }
+.row > input, .row > select { min-width: 0; }
+#manual-model[hidden] { display: none; }
+.help, .intro { color: var(--sp-muted); margin: 7px 0 0; line-height: 1.5; }
+#status { background: var(--sp-surface); border: 1px solid var(--sp-border); border-radius: var(--sp-radius-sm); min-height: 1.45em; color: var(--sp-muted); padding: 8px 10px; }
+code { background: var(--sp-raised); border: 1px solid var(--sp-border); border-radius: 4px; font-family: var(--vscode-editor-font-family); padding: 0 3px; }
+body.vscode-high-contrast, body.vscode-high-contrast-light { --sp-border: var(--vscode-contrastBorder, currentColor); --sp-focus: var(--vscode-contrastActiveBorder, currentColor); }
+@media (max-width: 480px) { body { padding: 16px; } .row { align-items: stretch; flex-direction: column; } }

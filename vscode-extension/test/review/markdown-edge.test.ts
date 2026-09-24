@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { maskMarkdownForPrompt, ReviewValidationError, validateAndResolve } from "../../src/review/validate";
+import { maskMarkdownForPrompt, validateAndResolve } from "../../src/review/validate";
 
 const response = (from: string) => ({ title: "Draft", level1: [{ from, options: ["the"], note: "Typo" }], level2: [] });
 
@@ -21,7 +21,7 @@ test("MDAST excludes HTML bytes but retains exact text nodes between inline tags
   assert.doesNotThrow(() => validateAndResolve(source, response("trailing teh"), "markdown"));
 });
 
-test("Markdown masks nested container syntax, escapes, emphasis, and heading closers", () => {
+test("Markdown masks structural markup while keeping prose in nested containers, escapes, emphasis, and heading closers available", () => {
   const source = [
     "> > - **nested teh**",
     "> > # Heading teh ###",
@@ -30,8 +30,14 @@ test("Markdown masks nested container syntax, escapes, emphasis, and heading clo
     "> > ---",
   ].join("\n");
   const masked = maskMarkdownForPrompt(source);
-  assert.match(masked, /nested teh|Heading teh|literal teh|bracket teh|listed teh/);
-  assert.doesNotMatch(masked, /literal teh|bracket teh/);
+  assert.match(masked, /nested teh/);
+  assert.match(masked, /Heading teh/);
+  assert.match(masked, /literal teh/);
+  assert.match(masked, /bracket teh/);
+  assert.match(masked, /listed teh/);
   assert.doesNotMatch(masked, />|\*\*|###|---|\\|_/);
-  assert.throws(() => validateAndResolve(source, response("###"), "markdown"), ReviewValidationError);
+  assert.doesNotThrow(() => validateAndResolve(source, response("literal teh"), "markdown"));
+  const headingCloser = validateAndResolve(source, response("###"), "markdown");
+  assert.deepEqual(headingCloser.level1, []);
+  assert.equal(headingCloser.skipped, 1);
 });

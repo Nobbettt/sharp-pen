@@ -32,7 +32,7 @@ test("maximum prose and a reasonable number of containers remain supported", () 
 
 test("structural rejection keeps existing reviews all-invalid", () => {
   const source = "teh";
-  const review = createReview(source, { uri: "file:///draft", documentVersion: 1, sourceHash: "hash", format: "markdown" }, validateAndResolve(source, response(source), "markdown"));
+  const review = createReview(source, { documentVersion: 1, format: "markdown" }, validateAndResolve(source, response(source), "markdown"));
   const complex = "- item\n".repeat(10_000);
   const result = reconcileSourceChanges(review, { "l1-1": { option: 0 } }, [{ rangeOffset: 0, rangeLength: source.length, text: complex }], complex, 2);
   assert.equal(result.review.level1[0].status, "invalidated");

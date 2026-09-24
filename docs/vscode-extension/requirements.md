@@ -1,17 +1,17 @@
 # Product requirements
 
 Status: draft 0.1
-Product: Sharp Pen for VS Code
+Product: sharp-pen for VS Code
 Initial document types: Markdown and plain text
 
 ## 1. Purpose
 
-Sharp Pen for VS Code gives authors the existing Sharp Pen proofreading flow
+sharp-pen for VS Code gives authors the existing sharp-pen proofreading flow
 without leaving VS Code. It analyzes the active Markdown or plain-text document
 with a user-installed AI CLI, presents Level 1 and Level 2 suggestions in an
 interactive review, and applies only the choices the author accepts.
 
-The normal VS Code editor remains the source of truth. Sharp Pen is a review
+The normal VS Code editor remains the source of truth. sharp-pen is a review
 surface, not a replacement text editor.
 
 ## 2. Product principles
@@ -32,7 +32,7 @@ The primary user is an author editing a Markdown or plain-text document in
 desktop VS Code or a desktop VS Code remote workspace.
 
 1. Open a Markdown or plain-text document.
-2. Run **Sharp Pen: Open Review** from the editor title, Command Palette, or
+2. Run **sharp-pen: Open Review** from the editor title, Command Palette, or
    editor context menu.
 3. Press **Analyze**.
 4. Review Level 1 or Level 2 suggestions in split or inline view.
@@ -68,17 +68,16 @@ desktop VS Code or a desktop VS Code remote workspace.
 ### Analysis
 
 - **FR-010** Analyze shall invoke one supported, user-installed headless AI CLI:
-  Claude Code, Codex CLI, or GitHub Copilot CLI. OpenCode shall remain fail-closed
-  until it can disable tools, custom agents, configuration, and MCP reliably.
+  Claude Code, Codex CLI, GitHub Copilot CLI, or OpenCode.
 - **FR-011** `Auto` client selection shall use this priority order: Claude Code,
-  Codex, GitHub Copilot CLI.
+  Codex, GitHub Copilot CLI, OpenCode.
 - **FR-012** An explicitly selected unavailable client shall produce an actionable
   error and shall not fall back to another provider.
 - **FR-013** An automatically selected client that fails after launch shall
   produce an actionable error and shall not silently send the document to another
   provider.
 - **FR-014** The selected CLI shall own authentication, credentials, billing, and
-  network access. Sharp Pen shall not collect or store provider credentials.
+  network access. sharp-pen shall not collect or store provider credentials.
 - **FR-015** The user shall be able to cancel analysis.
 - **FR-016** Only one analysis may run per review panel. Starting another shall
   cancel the previous run.
@@ -87,6 +86,15 @@ desktop VS Code or a desktop VS Code remote workspace.
   review state.
 - **FR-018** Analysis shall be disabled in an untrusted workspace and wherever a
   Node-based extension host cannot launch local processes.
+- **FR-019** Markdown task-list checkboxes may edit source only in a trusted
+  workspace. The host shall validate the current document version and exact task
+  marker; previews shall disable controls when source identity is not provable,
+  including structurally altered suggested Markdown.
+- **FR-019a** Trusted Markdown previews shall offer a language selector for exact
+  backtick/tilde fenced code blocks. It shall edit only the first info-string token,
+  preserve remaining metadata, and fail closed when source/rendered fence identity
+  differs. Switching a fence with metadata to Plain text shall write `plaintext`
+  to preserve remaining metadata. Indented code blocks shall not expose a selector.
 
 ### Suggestion semantics
 
@@ -134,28 +142,35 @@ desktop VS Code or a desktop VS Code remote workspace.
   active level.
 - **FR-039** Apply shall use the current mapped ranges, verify that every accepted
   range still contains its exact original text, and submit the remaining accepted
-  replacements in one version-aware `TextEditor.edit` transaction.
+  replacements in one version-aware `WorkspaceEdit` transaction, checking the
+  expected document version and resulting source after it applies.
 - **FR-040** A successful Apply shall participate in VS Code undo/redo and shall
   end the current review as applied.
 - **FR-041** The review shall never insert or execute AI-produced HTML.
 
 ### Settings
 
-- **FR-050** Sharp Pen shall expose AI client selection in its custom settings menu
-  and persist it in extension global state.
+- **FR-050** sharp-pen shall expose AI client selection in its dedicated settings
+  panel and persist it in extension global state.
 - **FR-051** Model overrides shall be optional and provider-scoped in global state.
   Empty means that provider's default model.
-- **FR-052** A **Sharp Pen: Select Model…** command shall fetch models from the
+- **FR-052** A **sharp-pen: Select Model…** command shall fetch models from the
   selected client's CLI when it exposes a supported discovery interface and show
   the results in a searchable VS Code Quick Pick.
 - **FR-052a** The model picker shall always include **Use client default** and
   **Enter model ID…**. When live discovery is unsupported or fails, those fallback
   choices shall remain available and the current saved value shall not be cleared.
 - **FR-052b** A **Refresh models** action shall bypass any cached discovery result.
-  Discovery shall also refresh when the selected AI client or extension-host
-  location changes.
-- **FR-053** A compact settings button in the review toolbar shall open Sharp Pen's
-  custom settings menu. Native Settings exposes only a static command-link launcher.
+  In a trusted workspace, the settings panel shall also refresh on readiness and
+  when the selected AI client changes. Untrusted workspaces shall not probe or
+  discover models.
+- **FR-052c** The settings panel model select shall always offer the client default
+  and **Other (specify model ID)** for a supported/effective client, alongside
+  discovered models and any saved custom model. The manual ID field and Save control
+  shall remain hidden until Other is selected.
+- **FR-053** A compact settings button in the review toolbar and the **sharp-pen:
+  Open Settings** Command Palette command shall open sharp-pen's reusable settings
+  panel.
 - **FR-054** Version 1 shall not accept arbitrary executable paths, shell command
   templates, or extra CLI arguments.
 - **FR-055** Client and model settings shall be extension-global and never read from
@@ -163,9 +178,9 @@ desktop VS Code or a desktop VS Code remote workspace.
 
 ### Theme, accessibility, and localization readiness
 
-- **FR-060** Preview Theme shall offer Light (default), Dark, and Auto in the custom
-  settings menu.
-  Light and Dark use Sharp Pen palettes; Auto follows VS Code's active theme.
+- **FR-060** Preview Theme shall offer Light (default), Dark, and Auto in the
+  dedicated settings panel.
+  Light and Dark use sharp-pen palettes; Auto follows VS Code's active theme.
 - **FR-061** Open reviews shall update when the preview theme setting changes,
   without re-running analysis.
 - **FR-062** The review shall remain usable with VS Code high-contrast themes.
@@ -179,7 +194,7 @@ desktop VS Code or a desktop VS Code remote workspace.
 
 - **NFR-001 Security:** launch fixed executables with fixed argument arrays and
   `shell: false`; treat document content and CLI output as untrusted data.
-- **NFR-002 Privacy:** make no Sharp Pen service calls and collect no telemetry.
+- **NFR-002 Privacy:** make no sharp-pen service calls and collect no telemetry.
   The configured AI client is the only component that transmits document text.
 - **NFR-003 Integrity:** never apply a suggestion unless its mapped live range
   still contains the exact source text analyzed for that suggestion.
@@ -203,7 +218,7 @@ desktop VS Code or a desktop VS Code remote workspace.
 - VS Code for the Web analysis.
 - Inline editor diagnostics, squiggles, Code Actions, or automatic analysis while
   typing.
-- Direct provider APIs or Sharp Pen-managed API keys.
+- Direct provider APIs or sharp-pen-managed API keys.
 - Chat participant integration.
 - Automatic provider failover after a client launches.
 - Streaming partial suggestions into the review.
@@ -229,18 +244,20 @@ desktop VS Code or a desktop VS Code remote workspace.
   preserves and repositions that suggestion; editing inside one invalidates only
   that suggestion. Analyze becomes available again, and unaffected accepted
   suggestions can still be applied.
-- **AC-005 Invalid output:** Given malformed JSON, a missing anchor, overlapping
-  spans, or a non-string option, no suggestion is displayed and the document is
-  unchanged.
+- **AC-005 Invalid output:** Given malformed JSON, the whole response is rejected
+  and the document is unchanged. Given a per-suggestion problem instead — a
+  missing anchor, overlapping spans, or a non-string option — only the offending
+  suggestions are dropped; the rest of the review is still published, with a
+  non-blocking notice reporting how many were skipped.
 - **AC-006 Provider routing:** With Claude absent and Codex present, Auto uses
-  Codex. If Codex then fails, Sharp Pen reports that failure and does not invoke
+  Codex. If Codex then fails, sharp-pen reports that failure and does not invoke
   Copilot.
-- **AC-007 Explicit provider:** With `claude` selected and Claude absent, Sharp Pen
+- **AC-007 Explicit provider:** With `claude` selected and Claude absent, sharp-pen
   reports how to install/select another client and launches nothing else.
 - **AC-008 Cancellation:** Cancelling analysis terminates the child process,
   discards late output, and leaves the document and previous valid review intact.
-- **AC-009 Trust:** In an untrusted workspace, Analyze is disabled in the UI and
-  guarded in the command handler.
+- **AC-009 Trust:** In an untrusted workspace, Analyze and task checkbox edits
+  are disabled in the UI and guarded in the extension host.
 - **AC-010 Remote:** In a remote workspace, detection and execution occur on the
   remote extension host and the webview remains interactive locally.
 - **AC-011 Theme:** Changing between light, dark, and high-contrast themes updates

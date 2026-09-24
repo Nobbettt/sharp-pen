@@ -24,6 +24,7 @@ test("prompt masks Markdown code and URL syntax while preserving prose", () => {
   });
   assert.match(prompt, /Prose teh\./);
   assert.doesNotMatch(prompt, /secret code|private\.example|const hidden/);
+  assert.match(prompt, /Skip Level 2 for any sentence that contains a masked region/);
 });
 
 test("schema uses the validator's response shape and bounds", () => {

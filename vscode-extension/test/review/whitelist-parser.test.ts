@@ -31,9 +31,11 @@ test("unclosed front matter and malformed HTML-like prose stay eligible", () => 
   assert.doesNotThrow(() => validateAndResolve(source, response("malformed prose"), "markdown"));
 });
 
-test("raw/value mismatches fail closed and malformed angles stay near-linear", () => {
+test("an entity keeps its surrounding prose available while staying masked itself, and malformed angles stay near-linear", () => {
   const entityMasked = maskMarkdownForPrompt("before &amp; after");
-  assert.doesNotMatch(entityMasked, /before|after|&amp;/);
+  assert.match(entityMasked, /before/);
+  assert.match(entityMasked, /after/);
+  assert.doesNotMatch(entityMasked, /&amp;/);
 
   const source = "x <a ".repeat(20_000);
   const started = performance.now();

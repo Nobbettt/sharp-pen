@@ -23,10 +23,12 @@ function reconcileSuggestion(suggestion: Suggestion, change: SourceChange): Sugg
     return { ...suggestion, start: suggestion.start + delta, end: suggestion.end + delta };
   }
   if (change.rangeOffset >= suggestion.end) return suggestion;
+  // Collapse to an empty range at the edit position rather than covering the inserted text: the
+  // webview renders a suggestion's range as one span, and the user's new text must never be wrapped in it.
   return {
     ...suggestion,
     start: change.rangeOffset,
-    end: change.rangeOffset + change.text.length,
+    end: change.rangeOffset,
     status: "invalidated",
   };
 }

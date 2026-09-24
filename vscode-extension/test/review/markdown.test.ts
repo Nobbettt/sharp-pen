@@ -15,8 +15,12 @@ test("Markdown parser ranges protect BOM front matter, code, and markers while r
   const masked = maskMarkdownForPrompt(source);
   assert.doesNotMatch(masked, /title: teh|const teh|# |^- /m);
   assert.match(masked, /Heading teh|list teh|Prose teh/);
-  assert.throws(() => validateAndResolve(source, response("# Heading"), "markdown"), ReviewValidationError);
-  assert.throws(() => validateAndResolve(source, response("const teh"), "markdown"), ReviewValidationError);
+  const heading = validateAndResolve(source, response("# Heading"), "markdown");
+  assert.deepEqual(heading.level1, []);
+  assert.equal(heading.skipped, 1);
+  const code = validateAndResolve(source, response("const teh"), "markdown");
+  assert.deepEqual(code.level1, []);
+  assert.equal(code.skipped, 1);
 });
 
 test("MDAST admits only exact text offsets", () => {
@@ -31,8 +35,12 @@ test("MDAST admits only exact text offsets", () => {
   assert.doesNotMatch(masked, /\*|https:\/\/teh\.example/);
   assert.match(masked, /Prose\s+teh\s+and\s+guide/);
   assert.match(masked, /teh in HTML|teh in unclosed HTML/);
-  assert.throws(() => validateAndResolve(source, response("*teh*"), "markdown"), ReviewValidationError);
-  assert.throws(() => validateAndResolve(source, response("https://teh.example/a\\)b"), "markdown"), ReviewValidationError);
+  const emphasis = validateAndResolve(source, response("*teh*"), "markdown");
+  assert.deepEqual(emphasis.level1, []);
+  assert.equal(emphasis.skipped, 1);
+  const linkDestination = validateAndResolve(source, response("https://teh.example/a\\)b"), "markdown");
+  assert.deepEqual(linkDestination.level1, []);
+  assert.equal(linkDestination.skipped, 1);
   assert.doesNotThrow(() => validateAndResolve(source, response("teh in unclosed HTML"), "markdown"));
 });
 
@@ -42,7 +50,9 @@ test("MDAST keeps ordinary link labels but excludes autolinks", () => {
   assert.match(masked, /label teh/);
   assert.doesNotMatch(masked, /private\.example/);
   assert.doesNotThrow(() => validateAndResolve(source, response("label teh"), "markdown"));
-  assert.throws(() => validateAndResolve(source, response("https://private.example/autolink"), "markdown"), ReviewValidationError);
+  const autolink = validateAndResolve(source, response("https://private.example/autolink"), "markdown");
+  assert.deepEqual(autolink.level1, []);
+  assert.equal(autolink.skipped, 1);
 });
 
 test("Markdown anchor resolution remains linear enough for repeated prose anchors", () => {

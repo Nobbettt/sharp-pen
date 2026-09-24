@@ -1,11 +1,15 @@
-import { ProcessRunnerError, runProcess } from "../processRunner";
+import { ProcessRunnerError, analysisTimeoutMs, runProcess } from "../processRunner";
 import { isModelId } from "../modelId";
 import type { CliAdapter, CliId, ProbeResult } from "../types";
 
 type Runner = typeof runProcess;
 
+/** How long a just-completed probe's --version check remains fresh enough to skip the revalidation. */
+const probeFreshnessMs = 2_000;
+
 export abstract class BaseAdapter implements CliAdapter {
   private probeResult: ProbeResult | undefined;
+  private probedAt: number | undefined;
 
   abstract readonly id: CliId;
 
@@ -31,6 +35,7 @@ export abstract class BaseAdapter implements CliAdapter {
       const safetyIssue = await this.safetyIssue(capabilities, signal);
       if (safetyIssue) return this.unavailable(safetyIssue, capabilities);
       this.probeResult = { available: true, version: installedVersion, capabilities };
+      this.probedAt = Date.now();
       return this.probeResult;
     } catch (error) {
       const message = error instanceof ProcessRunnerError && error.kind === "aborted"
@@ -42,14 +47,33 @@ export abstract class BaseAdapter implements CliAdapter {
 
   async analyze(prompt: string, options: { model?: string } = {}, signal?: AbortSignal): Promise<string> {
     const model = options.model?.trim();
-    if (model && !isModelId(model)) throw new ProcessRunnerError("launch", "Sharp Pen cannot use that model ID.");
+    if (model && !isModelId(model)) throw new ProcessRunnerError("launch", "sharp-pen cannot use that model ID.");
+    await this.revalidateVersion(signal);
     const probe = await this.probe(signal);
     if (!probe.available) throw new ProcessRunnerError("launch", probe.message!);
     if (model && !probe.capabilities.has("--model")) {
       throw new ProcessRunnerError("launch", `${label(this.id)} cannot use a model override. Upgrade it or clear the selected model.`);
     }
-    const result = await this.runner({ executable: this.id, args: this.args(probe.capabilities, model), input: prompt, signal });
+    const result = await this.runner({ executable: this.id, args: this.args(probe.capabilities, model), input: prompt, signal, timeoutMs: analysisTimeoutMs(prompt.length) });
     return this.extract(result.stdout);
+  }
+
+  /** A cached probe only proves the CLI was safe at first use; re-check the cheap version output before each analysis and drop the cache if it no longer matches. */
+  private async revalidateVersion(signal?: AbortSignal): Promise<void> {
+    if (!this.probeResult?.available) return;
+    // The probe that populated this cache already ran --version moments ago; skip only that one still-fresh duplicate.
+    if (this.probedAt !== undefined) {
+      const freshProbe = Date.now() - this.probedAt < probeFreshnessMs;
+      this.probedAt = undefined;
+      if (freshProbe) return;
+    }
+    try {
+      const version = await this.runner({ executable: this.id, args: ["--version"], signal, timeoutMs: 5_000, stdoutLimit: 8_192, stderrLimit: 8_192 });
+      if (firstLine(version.stdout || version.stderr) === this.probeResult.version) return;
+    } catch (error) {
+      if (error instanceof ProcessRunnerError && error.kind === "aborted") throw error;
+    }
+    this.probeResult = undefined;
   }
 
   protected abstract args(capabilities: ReadonlySet<string>, model?: string): string[];
@@ -96,7 +120,7 @@ function label(id: CliId): string {
   return ({ claude: "Claude Code", codex: "Codex", copilot: "GitHub Copilot", opencode: "OpenCode" })[id];
 }
 
-/** Extracts a final assistant payload without interpreting its Sharp Pen schema. */
+/** Extracts a final assistant payload without interpreting its sharp-pen schema. */
 export function extractFinalText(stdout: string): string {
   const text = stdout.trim();
   if (!text) throw new ProcessRunnerError("exit", "The AI client returned no final response. Try again.");
@@ -158,8 +182,8 @@ function copilotAssistantContent(value: unknown): string | undefined {
   const event = value as Record<string, unknown>;
   if (event.type !== "assistant.message" || !event.data || typeof event.data !== "object") return undefined;
   const data = event.data as Record<string, unknown>;
-  if (hasToolMetadata(data)) return undefined;
-  return contentText(data.content) ?? nestedContent(data.message) ?? nestedContent(data.response);
+  if (!Array.isArray(data.toolRequests) || data.toolRequests.length || hasToolMetadata(data)) return undefined;
+  return typeof data.content === "string" ? data.content : contentText(data.content) ?? nestedContent(data.message) ?? nestedContent(data.response);
 }
 
 function nestedContent(value: unknown): string | undefined {
@@ -181,7 +205,8 @@ function contentText(value: unknown): string | undefined {
 function isSafeCopilotTerminalEvent(value: unknown): boolean {
   if (!value || typeof value !== "object") return false;
   const event = value as Record<string, unknown>;
-  return event.type === "result" && !hasToolMetadata(event) && !hasContentMetadata(event);
+  return ["assistant.reasoning", "assistant.turn_end", "session.usage_checkpoint", "assistant.idle"].includes(String(event.type))
+    || event.type === "result" && !hasToolMetadata(event) && !hasContentMetadata(event);
 }
 
 function hasToolMetadata(value: unknown): boolean {

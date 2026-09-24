@@ -9,6 +9,22 @@ import {
 } from "./types";
 
 import fromMarkdown = require("mdast-util-from-markdown");
+import parseEntities = require("parse-entities");
+
+// The full `micromark-extension-gfm`/`mdast-util-gfm` bundle also pulls in gfm-autolink-literal,
+// whose tokenizer is quadratic on plain repeated text (100k chars ~= 1.3s). Table, strikethrough,
+// and task-list markers use the fast sub-extensions directly; literal URLs are masked separately below.
+const gfmSyntaxExtensions: any[] = [
+  require("micromark-extension-gfm-strikethrough")(),
+  require("micromark-extension-gfm-table"),
+  require("micromark-extension-gfm-task-list-item"),
+];
+const gfmMdastExtensions: any[] = [
+  require("mdast-util-gfm-strikethrough").fromMarkdown,
+  require("mdast-util-gfm-table").fromMarkdown,
+  require("mdast-util-gfm-task-list-item").fromMarkdown,
+];
+const literalUrlPattern = /\bhttps?:\/\/[^\s<>]+|\bwww\.[^\s<>]+/gi;
 
 export const REVIEW_LIMITS = {
   source: 100_000,
@@ -93,10 +109,15 @@ function normalizedRanges(ranges: OffsetRange[]): OffsetRange[] {
   return result;
 }
 
-function frontMatterRange(source: string): OffsetRange | undefined {
+export function frontMatterRange(source: string): OffsetRange | undefined {
   const start = source.charCodeAt(0) === 0xfeff ? 1 : 0;
   const firstEnd = source.indexOf("\n", start);
   if (!/^(---|\.\.\.)\s*\r?$/.test(source.slice(start, firstEnd === -1 ? source.length : firstEnd))) return undefined;
+  if (firstEnd !== -1) {
+    const secondEnd = source.indexOf("\n", firstEnd + 1);
+    // YAML front matter can't open with a blank line; that shape is a thematic break followed by a paragraph.
+    if (/^\s*$/.test(source.slice(firstEnd + 1, secondEnd === -1 ? source.length : secondEnd))) return undefined;
+  }
   for (let cursor = firstEnd === -1 ? source.length : firstEnd + 1; cursor < source.length;) {
     const end = source.indexOf("\n", cursor);
     const lineEnd = end === -1 ? source.length : end;
@@ -119,7 +140,68 @@ function mdastNode(value: unknown): value is MdastNode {
   return value !== null && typeof value === "object";
 }
 
-function markdownTooComplex(source: string): boolean {
+/** Finds a raw HTML/XML character reference at `raw[index]`, if any, and what it decodes to. */
+function decodeEntityAt(raw: string, index: number): { length: number; text: string } | undefined {
+  if (raw.charCodeAt(index) !== 38 /* & */) return undefined;
+  let found: { length: number; text: string } | undefined;
+  parseEntities(raw.slice(index, index + 34), {
+    nonTerminated: false,
+    reference(value, location) {
+      if (!found && location.start.offset === 0) found = { length: location.end.offset, text: value };
+    },
+  });
+  return found;
+}
+
+/**
+ * Maps a text node's decoded `value` back onto its raw source span. The two differ only where
+ * a container prefix follows a line break (wrapped list/blockquote prose), where trailing spaces
+ * or tabs precede a soft line break (mdast trims them), or where the raw source used a character
+ * escape or an HTML entity; every other character lines up one-to-one.
+ */
+function addTextRanges(source: string, start: number, end: number, value: string, allowed: OffsetRange[]): void {
+  const raw = source.slice(start, end);
+  if (raw === value) return addRange(allowed, start, end);
+  let i = 0;
+  let j = 0;
+  let runStart = 0;
+  let atLineStart = false;
+  const flush = () => addRange(allowed, start + runStart, start + i);
+  while (i < raw.length && j < value.length) {
+    const entity = decodeEntityAt(raw, i);
+    if (entity && value.startsWith(entity.text, j)) {
+      flush();
+      i += entity.length;
+      j += entity.text.length;
+      runStart = i;
+      atLineStart = false;
+      continue;
+    }
+    if (raw[i] === value[j]) {
+      atLineStart = raw[i] === "\n";
+      i += 1;
+      j += 1;
+      continue;
+    }
+    flush();
+    if (raw[i] === "\\" && i + 1 < raw.length && raw[i + 1] === value[j]) {
+      i += 1;
+      runStart = i;
+      atLineStart = false;
+    } else if (atLineStart) {
+      i += 1;
+      runStart = i;
+    } else if ((raw[i] === " " || raw[i] === "\t") && (value[j] === "\n" || (value[j] === "\r" && value[j + 1] === "\n")) && /^[ \t]*\r?\n/.test(raw.slice(i))) {
+      i += 1;
+      runStart = i;
+    } else {
+      return;
+    }
+  }
+  flush();
+}
+
+export function markdownTooComplex(source: string): boolean {
   let delimiters = 0;
   let run = 0;
   for (let index = 0; index < source.length; index += 1) {
@@ -177,12 +259,13 @@ export function markdownExcludedRanges(source: string, requireAvailable = false)
     const start = typeof startOffset === "number" ? startOffset + bom : undefined;
     const end = typeof endOffset === "number" ? endOffset + bom : undefined;
     const autolink = parent?.type === "link" && typeof start === "number" && source[start - 1] === "<";
-    if (node.type === "text" && typeof node.value === "string" && typeof start === "number" && typeof end === "number"
-      && source.slice(start, end) === node.value && !autolink) addRange(allowed, start, end);
+    if (node.type === "text" && typeof node.value === "string" && typeof start === "number" && typeof end === "number" && !autolink) {
+      addTextRanges(source, start, end, node.value, allowed);
+    }
     if (Array.isArray(node.children)) for (const child of node.children) visit(child, node);
   };
   try {
-    visit(fromMarkdown(source.slice(bom)));
+    visit(fromMarkdown(source.slice(bom), { extensions: gfmSyntaxExtensions, mdastExtensions: gfmMdastExtensions }));
   } catch {
     if (requireAvailable) throw new ReviewValidationError(markdownComplexityMessage);
     return source.length ? [{ start: 0, end: source.length }] : [];
@@ -195,6 +278,7 @@ export function markdownExcludedRanges(source: string, requireAvailable = false)
     cursor = Math.max(cursor, range.end);
   }
   addRange(excluded, cursor, source.length);
+  for (const match of source.matchAll(literalUrlPattern)) addRange(excluded, match.index, match.index + match[0].length);
   const frontMatter = frontMatterRange(source);
   if (frontMatter) excluded.push(frontMatter);
   return normalizedRanges(excluded);
@@ -239,7 +323,7 @@ function suggestion(value: unknown, label: string): AgentSuggestion {
 
   const occurrence = input.occurrence;
   let resolvedOccurrence: number | undefined;
-  if (occurrence !== undefined) {
+  if (occurrence !== undefined && occurrence !== null) {
     if (typeof occurrence !== "number" || !Number.isSafeInteger(occurrence) || occurrence < 1) {
       throw new ReviewValidationError(`${label}.occurrence must be a positive integer`);
     }
@@ -260,19 +344,30 @@ export function parseAgentResponse(text: string): unknown {
   }
 }
 
-export function validateAgentResponse(value: unknown): AgentResponse {
+/** A suggestion that fails schema validation (unknown field, no-op edit, blank note, …) is dropped and counted here rather than rejecting the whole response. */
+export function validateAgentResponse(value: unknown, requestedTitle = ""): AgentResponse & { invalid: number } {
   const input = object(value, "agent response");
   onlyKeys(input, responseKeys, "agent response");
-  const title = bounded(input.title, "agent response.title", REVIEW_LIMITS.title);
-  if (!title.trim()) throw new ReviewValidationError("agent response.title must not be empty");
+  const rawTitle = string(input.title, "agent response.title");
+  // The title is purely informational; a blank or oversized one falls back rather than discarding the whole review.
+  const title = rawTitle.trim() && rawTitle.length <= REVIEW_LIMITS.title ? rawTitle : requestedTitle;
 
+  let invalid = 0;
   const level = (name: "level1" | "level2"): AgentSuggestion[] => {
     const entries = input[name];
     if (!Array.isArray(entries)) throw new ReviewValidationError(`agent response.${name} must be an array`);
-    if (entries.length > REVIEW_LIMITS.suggestionsPerLevel) {
-      throw new ReviewValidationError(`agent response.${name} exceeds ${REVIEW_LIMITS.suggestionsPerLevel} suggestions`);
-    }
-    return entries.map((entry, index) => suggestion(entry, `${name}[${index}]`));
+    const capped = entries.slice(0, REVIEW_LIMITS.suggestionsPerLevel);
+    invalid += entries.length - capped.length;
+    const kept: AgentSuggestion[] = [];
+    capped.forEach((entry, index) => {
+      try {
+        kept.push(suggestion(entry, `${name}[${index}]`));
+      } catch (error) {
+        if (!(error instanceof ReviewValidationError)) throw error;
+        invalid += 1;
+      }
+    });
+    return kept;
   };
 
   const response = { title, level1: level("level1"), level2: level("level2") };
@@ -283,7 +378,7 @@ export function validateAgentResponse(value: unknown): AgentResponse {
   if (size > REVIEW_LIMITS.response) {
     throw new ReviewValidationError(`agent response exceeds ${REVIEW_LIMITS.response} characters`);
   }
-  return response;
+  return { ...response, invalid };
 }
 
 function occurrences(source: string, from: string): number[] {
@@ -294,24 +389,23 @@ function occurrences(source: string, from: string): number[] {
   return starts;
 }
 
-function resolve(source: string, entry: AgentSuggestion, level: Level, index: number, ranges: readonly OffsetRange[]): Suggestion {
-  const label = `level${level}[${index}]`;
-  const hits = occurrences(source, entry.from).filter((start) => !rangeTouchesExcluded(ranges, start, start + entry.from.length));
-  if (!hits.length) throw new ReviewValidationError(`${label}.from is not present in the source`);
+/** Resolves one suggestion's anchor, or returns undefined when it cannot be placed unambiguously. */
+function resolve(source: string, entry: AgentSuggestion, level: Level, index: number, ranges: readonly OffsetRange[]): Suggestion | undefined {
+  let from = entry.from;
+  let hits = occurrences(source, from).filter((start) => !rangeTouchesExcluded(ranges, start, start + from.length));
+  // Models return a bare \n; a CRLF source needs the anchor rejoined with \r\n to match.
+  if (!hits.length && source.includes("\r\n") && /(?<!\r)\n/.test(from)) {
+    from = from.replace(/\r?\n/g, "\r\n");
+    hits = occurrences(source, from).filter((start) => !rangeTouchesExcluded(ranges, start, start + from.length));
+  }
+  if (!hits.length) return undefined;
 
   let start: number;
   if (hits.length > 1) {
-    if (entry.occurrence === undefined) {
-      throw new ReviewValidationError(`${label}.from occurs ${hits.length} times; occurrence is required`);
-    }
-    if (entry.occurrence > hits.length) {
-      throw new ReviewValidationError(`${label}.occurrence is out of range`);
-    }
+    if (entry.occurrence === undefined || entry.occurrence > hits.length) return undefined;
     start = hits[entry.occurrence - 1];
   } else {
-    if (entry.occurrence !== undefined && entry.occurrence !== 1) {
-      throw new ReviewValidationError(`${label}.occurrence must be 1 for a unique anchor`);
-    }
+    if (entry.occurrence !== undefined && entry.occurrence !== 1) return undefined;
     start = hits[0];
   }
 
@@ -319,8 +413,8 @@ function resolve(source: string, entry: AgentSuggestion, level: Level, index: nu
     id: `l${level}-${index + 1}`,
     level,
     start,
-    end: start + entry.from.length,
-    from: entry.from,
+    end: start + from.length,
+    from,
     options: entry.options,
     note: entry.note,
     status: "active",
@@ -331,49 +425,36 @@ export function rangesOverlap(a: Pick<Suggestion, "start" | "end">, b: Pick<Sugg
   return a.start < b.end && b.start < a.end;
 }
 
-function assertDisjoint(suggestions: Suggestion[], level: Level): void {
-  const ordered = [...suggestions].sort((a, b) => a.start - b.start);
-  for (let index = 1; index < ordered.length; index += 1) {
-    if (rangesOverlap(ordered[index - 1], ordered[index])) {
-      throw new ReviewValidationError(`level${level} suggestions must not overlap`);
-    }
-  }
-}
-
 function contains(outer: Suggestion, inner: Suggestion): boolean {
   return outer.start <= inner.start && inner.end <= outer.end;
 }
 
-export function validateAndResolve(source: string, value: unknown, format: "markdown" | "plaintext" = "plaintext"): ResolvedReview {
-  assertReviewSource(source);
-  const response = validateAgentResponse(value);
-  const ranges = format === "markdown" ? markdownExcludedRanges(source, true) : [];
-  const level1 = response.level1.map((entry, index) => resolve(source, entry, 1, index, ranges));
-  const level2 = response.level2.map((entry, index) => resolve(source, entry, 2, index, ranges));
-  assertDisjoint(level1, 1);
-  assertDisjoint(level2, 2);
-
-  for (const sentence of level2) {
-    for (const correction of level1) {
-      if (rangesOverlap(sentence, correction) && !contains(sentence, correction)) {
-        throw new ReviewValidationError("a level2 suggestion must wholly contain each level1 suggestion it intersects");
-      }
-    }
-  }
-  return { title: response.title, level1, level2 };
+/** Resolves a level's suggestions in order, dropping any whose anchor fails or overlaps one already kept. */
+function resolveLevel(source: string, entries: readonly AgentSuggestion[], level: Level, ranges: readonly OffsetRange[]): Suggestion[] {
+  const kept: Suggestion[] = [];
+  entries.forEach((entry, index) => {
+    const candidate = resolve(source, entry, level, index, ranges);
+    if (candidate && !kept.some((suggestion) => rangesOverlap(suggestion, candidate))) kept.push(candidate);
+  });
+  return kept;
 }
 
-export function parseAndResolveAgentResponse(source: string, text: string, format: "markdown" | "plaintext" = "plaintext"): ResolvedReview {
-  return validateAndResolve(source, parseAgentResponse(text), format);
+export function validateAndResolve(source: string, value: unknown, format: "markdown" | "plaintext" = "plaintext", requestedTitle = ""): ResolvedReview {
+  assertReviewSource(source);
+  const response = validateAgentResponse(value, requestedTitle);
+  const ranges = format === "markdown" ? markdownExcludedRanges(source, true) : [];
+  const level1 = resolveLevel(source, response.level1, 1, ranges);
+  const level2 = resolveLevel(source, response.level2, 2, ranges)
+    .filter((sentence) => !level1.some((correction) => rangesOverlap(sentence, correction) && !contains(sentence, correction)));
+
+  const requested = response.level1.length + response.level2.length + response.invalid;
+  const resolved = level1.length + level2.length;
+  return { title: response.title, level1, level2, skipped: requested - resolved };
 }
 
 export function createReview(source: string, metadata: ReviewMetadata, resolved: ResolvedReview): Review {
   return {
-    schemaVersion: 1,
     format: metadata.format ?? "plaintext",
-    uri: metadata.uri,
-    analysisDocumentVersion: metadata.documentVersion,
-    analysisSourceHash: metadata.sourceHash,
     currentDocumentVersion: metadata.documentVersion,
     currentSource: source,
     level1: resolved.level1,

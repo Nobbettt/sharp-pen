@@ -6,7 +6,7 @@
 </p>
 
 <p align="center">
-  <strong>Grammarly-style proofreading, run by your AI assistant. You keep the pen.</strong>
+  <strong>Focused proofreading, run by your AI assistant. You keep the pen.</strong>
 </p>
 
 <p align="center">
@@ -17,7 +17,7 @@
 
 ---
 
-Grammarly-style proofreading, run by your AI assistant. It fixes your writing
+Focused proofreading, run by your AI assistant. It fixes your writing
 without changing your tone or reformulating what you wanted to say. Hand it a
 draft and it hands back a review page: your text on the left, suggestions on
 the right, every difference clickable. Accept a change with one click; when
@@ -48,7 +48,7 @@ casual prose corporate.
 
 Many writers want to do the rough draft themselves. Getting the words down is
 part of the thinking, and handing it to a model takes that away. What they
-want afterwards is what Grammarly offers: catch the typos, fix the grammar,
+want afterwards is focused copy editing: catch the typos, fix the grammar,
 flag the sentence that doesn't quite work, and leave everything else alone.
 Asking a general assistant for that is surprisingly hard. Tell it to proofread
 and it rewrites, smooths out the voice, drops a hedge the author meant, or
@@ -110,10 +110,11 @@ Then paste a draft into any project and ask for proofreading, or run
 **VS Code extension**
 
 The extension supports VS Code's Markdown and plain-text language modes on
-desktop and remote workspace extension hosts. Install a VSIX with
-`code --install-extension sharp-pen-0.1.0.vsix`, or open `vscode-extension/`,
-run `npm install`, and press `F5` in desktop VS Code to develop it. It is not
-currently published to the VS Code Marketplace. See the
+desktop and remote workspace extension hosts. Install it from the
+[VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=nobbettt.sharp-pen),
+[Open VSX](https://open-vsx.org/extension/nobbettt/sharp-pen), or a release VSIX.
+Open `vscode-extension/`, run `npm install`, and press `F5` in desktop VS Code
+to develop it. See the
 [extension README](vscode-extension/README.md) for requirements, provider and
 model selection, remote-host setup, and privacy details.
 
@@ -151,11 +152,11 @@ In the Claude desktop app the review page opens right beside the conversation:
 
 ## Privacy
 
-The Sharp Pen service collects, stores, and transmits nothing. The review page is
+The sharp-pen service collects, stores, and transmits nothing. The review page is
 a single self-contained HTML file with no external resources; the local server
 binds to `127.0.0.1` only. Your draft is read by whichever assistant you run the
 skill in, and a selected CLI sends review prose to its provider under that
-provider's terms. Sharp Pen adds no transmission of its own. Details in
+provider's terms. sharp-pen adds no transmission of its own. Details in
 [PRIVACY.md](PRIVACY.md).
 
 ## About the author

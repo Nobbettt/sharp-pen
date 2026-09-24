@@ -1,4 +1,4 @@
-# Sharp Pen for VS Code: design pack
+# sharp-pen for VS Code: design pack
 
 Status: implemented for the initial 0.1 release.
 
@@ -22,9 +22,8 @@ The design uses these defaults unless review changes them:
 3. **Accept all** accepts the first option only for pending suggestions in the
    active level; explicit Keep original and chosen alternatives are preserved.
 4. `Auto` selects the first installed client in this order: Claude Code, Codex,
-   GitHub Copilot CLI. OpenCode remains visible but fail-closed until it can be
-   isolated safely. Sharp Pen never switches provider after a failed run.
-5. The preview defaults to Sharp Pen's light palette; Dark and Auto are available
+   GitHub Copilot CLI, OpenCode. sharp-pen never switches provider after a failed run.
+5. The preview defaults to sharp-pen's light palette; Dark and Auto are available
    in settings, with Auto following VS Code's theme.
 6. Version 1 is a desktop/workspace extension. VS Code for the Web cannot run
    the required local CLI processes.

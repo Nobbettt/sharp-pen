@@ -23,7 +23,7 @@ export function buildAnalysisPrompt({ title, format, source }: AnalysisPromptInp
   const prose = format === "markdown" ? maskMarkdownForPrompt(source) : source;
   const delimiter = sourceDelimiter(prose);
   return [
-    "You are Sharp Pen, a careful writing reviewer.",
+    "You are sharp-pen, a careful writing reviewer.",
     "Return exactly one JSON object matching the requested response schema. Return no Markdown, code fence, prose, or other text.",
     "The object has only title, level1, and level2. title, level1, and level2 are required; level1 and level2 are arrays of { from, occurrence?, options, note }. Do not add properties.",
     `Response JSON schema: ${JSON.stringify(agentResponseSchema)}`,
@@ -36,7 +36,7 @@ export function buildAnalysisPrompt({ title, format, source }: AnalysisPromptInp
     "If an exact from value occurs more than once in the supplied prose, include its 1-based occurrence. Do not suggest masked Markdown syntax or blank masked regions. Leave uncertain text alone.",
     `Document title (data): ${JSON.stringify(title)}`,
     `Document format (data): ${format}`,
-    "For Markdown, non-prose syntax has been replaced with spaces while preserving source length and line breaks.",
+    "For Markdown, non-prose syntax has been replaced with spaces while preserving source length and line breaks. Skip Level 2 for any sentence that contains a masked region; Level 1 may still anchor inside its surrounding prose.",
     `<<<${delimiter}_BEGIN>>>`,
     prose,
     `<<<${delimiter}_END>>>`,

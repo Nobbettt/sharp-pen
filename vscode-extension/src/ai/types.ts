@@ -13,7 +13,7 @@ export interface AnalyzeOptions {
   model?: string;
 }
 
-/** Provider adapters receive a fully assembled, untrusted prompt on stdin. */
+/** Provider adapters receive a fully assembled, untrusted prompt through the process runner. */
 export interface CliAdapter {
   readonly id: CliId;
   probe(signal?: AbortSignal): Promise<ProbeResult>;

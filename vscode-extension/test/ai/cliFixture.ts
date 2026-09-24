@@ -8,7 +8,9 @@ export interface CliFixtureConfig {
   output?: string;
   codexFeatures?: string;
   codexVersion?: string;
-  rejectSafeConfig?: boolean;
+  copilotVersion?: string;
+  opencodeVersion?: string;
+  opencodeModels?: string;
 }
 
 const script = `
@@ -17,19 +19,25 @@ const { basename, join } = require('node:path');
 const fixture = JSON.parse(readFileSync(join(__dirname, 'fixture.json'), 'utf8'));
 const args = process.argv.slice(2);
 const executable = basename(process.argv[1]).replace(/\\.(?:cmd|js)$/, '');
-if (args.includes('--version')) process.stdout.write(executable === 'codex' ? (fixture.codexVersion || 'codex-cli 0.155.1') + '\\n' : 'fixture 1.0\\n');
+if (args.includes('--version')) process.stdout.write(executable === 'codex' ? (fixture.codexVersion || 'codex-cli 0.155.1') + '\\n' : executable === 'copilot' ? (fixture.copilotVersion || 'GitHub Copilot CLI 1.0.88.') + '\\n' : executable === 'opencode' ? (fixture.opencodeVersion || '1.18.32') + '\\n' : 'fixture 1.0\\n');
 else if (args[0] === 'features' && args[1] === 'list') process.stdout.write(fixture.codexFeatures || '');
+else if (executable === 'opencode' && args[0] === 'models') process.stdout.write(fixture.opencodeModels || 'opencode/test-model\\n');
 else if (args.includes('--help')) {
-  if (fixture.rejectSafeConfig && args.includes('--strict-config')) process.exit(2);
   process.stdout.write(fixture.help || '');
   process.stderr.write(fixture.helpStderr || '');
 } else {
   let input = '';
   process.stdin.on('data', chunk => input += chunk);
   process.stdin.on('end', () => {
-    const captured = JSON.stringify({ args, input });
-    process.stdout.write(fixture.output === '__capture__' && process.argv[1].endsWith('copilot')
+    const fileIndex = args.indexOf('--file');
+    const fileInput = fileIndex >= 0 ? readFileSync(args[fileIndex + 1], 'utf8') : undefined;
+    const captured = JSON.stringify({ args, input, fileInput });
+    process.stdout.write(fixture.output === '__capture__' && process.argv[1].endsWith('claude')
+      ? JSON.stringify({ type: 'result', subtype: 'success', is_error: false, structured_output: JSON.parse(captured) })
+      : fixture.output === '__capture__' && process.argv[1].endsWith('copilot')
       ? JSON.stringify({ type: 'assistant.message', data: { toolRequests: [], message: { content: [{ type: 'text', text: captured }] } } })
+      : fixture.output === '__capture__' && process.argv[1].endsWith('opencode')
+      ? [JSON.stringify({ type: 'step_start', part: { type: 'step-start' } }), JSON.stringify({ type: 'text', part: { type: 'text', text: captured } }), JSON.stringify({ type: 'step_finish', part: { type: 'step-finish', reason: 'stop' } })].join('\\n')
       : fixture.output === '__capture__' ? captured : ('output' in fixture ? fixture.output : input));
   });
 }
