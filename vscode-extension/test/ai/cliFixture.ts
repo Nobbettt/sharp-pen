@@ -32,11 +32,11 @@ else if (args.includes('--help')) {
     const fileIndex = args.indexOf('--file');
     const fileInput = fileIndex >= 0 ? readFileSync(args[fileIndex + 1], 'utf8') : undefined;
     const captured = JSON.stringify({ args, input, fileInput });
-    process.stdout.write(fixture.output === '__capture__' && process.argv[1].endsWith('claude')
+    process.stdout.write(fixture.output === '__capture__' && executable === 'claude'
       ? JSON.stringify({ type: 'result', subtype: 'success', is_error: false, structured_output: JSON.parse(captured) })
-      : fixture.output === '__capture__' && process.argv[1].endsWith('copilot')
+      : fixture.output === '__capture__' && executable === 'copilot'
       ? JSON.stringify({ type: 'assistant.message', data: { toolRequests: [], message: { content: [{ type: 'text', text: captured }] } } })
-      : fixture.output === '__capture__' && process.argv[1].endsWith('opencode')
+      : fixture.output === '__capture__' && executable === 'opencode'
       ? [JSON.stringify({ type: 'step_start', part: { type: 'step-start' } }), JSON.stringify({ type: 'text', part: { type: 'text', text: captured } }), JSON.stringify({ type: 'step_finish', part: { type: 'step-finish', reason: 'stop' } })].join('\\n')
       : fixture.output === '__capture__' ? captured : ('output' in fixture ? fixture.output : input));
   });
