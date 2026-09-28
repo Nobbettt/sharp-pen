@@ -342,6 +342,8 @@ const renderMermaid = createMermaidRenderer(() => mermaidLoad ??= new Promise((r
       const index = Number(pre.dataset.sharpPenFenceIndex);
       const fence = model.fences.find((item) => item.index === index);
       if (!fence) return;
+      // Mermaid fences render as diagrams; changing their language would only turn them back into code.
+      if (fence.language.toLowerCase() === "mermaid") continue;
       const select = document.createElement("select");
       select.className = "fence-language";
       select.dataset.fenceIndex = String(index);

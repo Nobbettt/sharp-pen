@@ -20256,6 +20256,7 @@ ${source}`;
         const index = Number(pre.dataset.sharpPenFenceIndex);
         const fence2 = model.fences.find((item) => item.index === index);
         if (!fence2) return;
+        if (fence2.language.toLowerCase() === "mermaid") continue;
         const select = document.createElement("select");
         select.className = "fence-language";
         select.dataset.fenceIndex = String(index);
