@@ -67,7 +67,7 @@ button:focus-visible, input:focus-visible, .suggestion:focus-visible { outline: 
 #notice { align-items: center; background: var(--sp-surface); border: 1px solid var(--sp-border); border-radius: 0 0 var(--sp-radius) var(--sp-radius); color: var(--sp-muted); display: flex; flex: 0 0 auto; gap: 8px; margin: 0 10px; padding: 7px 9px; }
 #notice[hidden] { display: none; }
 main { --split-position: 50%; --split-hit: 6px; display: grid; flex: 1 1 auto; gap: 0; grid-template-columns: minmax(0, var(--split-position)) var(--split-hit) minmax(0, calc(100% - var(--split-position) - var(--split-hit))); min-height: 0; padding: 0; }
-.pane { background: var(--sp-bg); border: 1px solid var(--sp-border); border-radius: 0 0 var(--sp-radius) var(--sp-radius); border-top: 0; display: flex; flex-direction: column; min-height: 0; }
+.pane { background: var(--sp-bg); border: 1px solid var(--sp-border); border-radius: 0 0 var(--sp-radius) var(--sp-radius); border-top: 0; display: flex; flex-direction: column; min-height: 0; min-width: 0; }
 #split-divider { background: transparent; cursor: col-resize; position: relative; touch-action: none; }
 #split-divider::before { background: var(--sp-border); content: ""; inset: 0 auto 0 50%; pointer-events: none; position: absolute; transform: translateX(-50%); width: 1px; }
 #split-divider::after { align-items: center; background: var(--sp-raised); border: 1px solid var(--sp-border); border-radius: 999px; color: var(--sp-muted); content: "⋮"; display: flex; font-size: 12px; height: 28px; justify-content: center; left: 50%; line-height: 1; pointer-events: none; position: absolute; top: 50%; transform: translate(-50%, -50%); width: 6px; }
