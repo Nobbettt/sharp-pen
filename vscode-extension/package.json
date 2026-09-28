@@ -25,7 +25,7 @@
     "markdown"
   ],
   "main": "./out/extension.js",
-  "icon": "media/icon-128.png",
+  "icon": "media/icon.png",
   "contributes": {
     "commands": [
       {
