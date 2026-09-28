@@ -1,9 +1,9 @@
 export interface MermaidApi {
   initialize(config: Record<string, unknown>): void;
-  render(id: string, source: string): Promise<{ svg: string }>;
+  render(id: string, source: string, container?: Element): Promise<{ svg: string }>;
 }
 
-export interface MermaidDiagram { src: string; width: number; }
+export interface MermaidDiagram { src: string; width: number; alt: string; }
 
 // ponytail: cache is cleared wholesale past this size; an LRU only matters for huge documents.
 const CACHE_LIMIT = 100;
@@ -19,11 +19,21 @@ export function mermaidDark(previewTheme: string, bodyClasses: { contains(name: 
  */
 function toDiagram(svg: string): MermaidDiagram {
   const width = Number(/viewBox="[-\d.]+\s+[-\d.]+\s+([\d.]+)/.exec(svg)?.[1]);
-  return { src: `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`, width: Number.isFinite(width) && width > 0 ? Math.ceil(width) : 0 };
+  // Mermaid tags the SVG with its diagram type (e.g. "flowchart-v2", "sequence"); the <img> loses the SVG's own a11y tree.
+  const type = /aria-roledescription="([\w-]+)"/.exec(svg)?.[1].replace(/-v\d+$/, "").replace(/Diagram$/, "");
+  return {
+    src: `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`,
+    width: Number.isFinite(width) && width > 0 ? Math.ceil(width) : 0,
+    alt: type ? `Mermaid ${type.toLowerCase()} diagram` : "Mermaid diagram",
+  };
 }
 
 /** Returns a cached diagram synchronously, otherwise a promise; renders run one at a time because mermaid's theme is global. */
-export function createMermaidRenderer(load: () => Promise<MermaidApi>) {
+/**
+ * `host` is where mermaid lays diagrams out to measure them; without it mermaid appends a full-size
+ * element to <body>, which shifts the whole review layout until each render finishes.
+ */
+export function createMermaidRenderer(load: () => Promise<MermaidApi>, host?: () => Element) {
   const cache = new Map<string, MermaidDiagram | Promise<MermaidDiagram>>();
   let queue: Promise<unknown> = Promise.resolve();
   let count = 0;
@@ -35,7 +45,7 @@ export function createMermaidRenderer(load: () => Promise<MermaidApi>) {
     const pending = queue.then(async () => {
       const mermaid = await load();
       mermaid.initialize({ startOnLoad: false, securityLevel: "strict", suppressErrorRendering: true, theme: dark ? "dark" : "default" });
-      return toDiagram((await mermaid.render(`sharp-pen-mermaid-${++count}`, source)).svg);
+      return toDiagram((await mermaid.render(`sharp-pen-mermaid-${++count}`, source, host?.())).svg);
     });
     queue = pending.catch(() => undefined);
     cache.set(key, pending);

@@ -17,7 +17,16 @@ const renderMermaid = createMermaidRenderer(() => mermaidLoad ??= new Promise((r
   script.onload = () => window.mermaid ? resolve(window.mermaid) : reject(new Error("Mermaid did not load"));
   script.onerror = () => { mermaidLoad = null; reject(new Error("Mermaid could not be loaded")); };
   document.head.append(script);
-}));
+}), () => {
+  let host = document.querySelector(".mermaid-render-host");
+  if (!host) {
+    host = document.createElement("div");
+    host.className = "mermaid-render-host";
+    host.setAttribute("aria-hidden", "true");
+    document.body.append(host);
+  }
+  return host;
+});
 
 (() => {
   "use strict";
@@ -90,6 +99,7 @@ const renderMermaid = createMermaidRenderer(() => mermaidLoad ??= new Promise((r
     });
     zoom = next;
     document.documentElement.style.setProperty("--sp-preview-zoom", `${zoom}%`);
+    document.documentElement.style.setProperty("--sp-preview-zoom-factor", String(zoom / 100));
     els.zoomValue.value = `${zoom}%`;
     els.zoomOut.disabled = zoom === previewZoom.minimum;
     els.zoomIn.disabled = zoom === previewZoom.maximum;
@@ -309,9 +319,9 @@ const renderMermaid = createMermaidRenderer(() => mermaidLoad ??= new Promise((r
         if (!pre.isConnected || !code.isConnected) return;
         const img = document.createElement("img");
         img.className = "mermaid-diagram";
-        img.alt = "Mermaid diagram";
+        img.alt = diagram.alt;
         img.src = diagram.src;
-        if (diagram.width) img.width = diagram.width;
+        if (diagram.width) img.style.setProperty("--mermaid-width", `${diagram.width}px`);
         code.hidden = true;
         pre.classList.add("mermaid");
         pre.insertBefore(img, code);
@@ -716,6 +726,8 @@ const renderMermaid = createMermaidRenderer(() => mermaidLoad ??= new Promise((r
       choices[at < 0 ? 0 : nextIndex].focus();
     }
   });
+  // Diagrams are images with the theme baked in, so an Auto preview re-renders when VS Code's theme class changes.
+  new MutationObserver(() => { if (model?.previewTheme === "auto") render(); }).observe(document.body, { attributeFilter: ["class"] });
   window.addEventListener("message", (event) => {
     const message = event.data;
     if (message?.type === "sourceScroll" && Number.isFinite(message.ratio) && message.ratio >= 0 && message.ratio <= 1) {

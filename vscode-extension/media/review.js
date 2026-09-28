@@ -19853,9 +19853,14 @@
   }
   function toDiagram(svg) {
     const width = Number(/viewBox="[-\d.]+\s+[-\d.]+\s+([\d.]+)/.exec(svg)?.[1]);
-    return { src: `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`, width: Number.isFinite(width) && width > 0 ? Math.ceil(width) : 0 };
+    const type = /aria-roledescription="([\w-]+)"/.exec(svg)?.[1].replace(/-v\d+$/, "").replace(/Diagram$/, "");
+    return {
+      src: `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`,
+      width: Number.isFinite(width) && width > 0 ? Math.ceil(width) : 0,
+      alt: type ? `Mermaid ${type.toLowerCase()} diagram` : "Mermaid diagram"
+    };
   }
-  function createMermaidRenderer(load) {
+  function createMermaidRenderer(load, host) {
     const cache = /* @__PURE__ */ new Map();
     let queue = Promise.resolve();
     let count = 0;
@@ -19868,7 +19873,7 @@ ${source}`;
       const pending = queue.then(async () => {
         const mermaid = await load();
         mermaid.initialize({ startOnLoad: false, securityLevel: "strict", suppressErrorRendering: true, theme: dark ? "dark" : "default" });
-        return toDiagram((await mermaid.render(`sharp-pen-mermaid-${++count}`, source)).svg);
+        return toDiagram((await mermaid.render(`sharp-pen-mermaid-${++count}`, source, host?.())).svg);
       });
       queue = pending.catch(() => void 0);
       cache.set(key, pending);
@@ -19893,7 +19898,16 @@ ${source}`;
       reject(new Error("Mermaid could not be loaded"));
     };
     document.head.append(script);
-  }));
+  }), () => {
+    let host = document.querySelector(".mermaid-render-host");
+    if (!host) {
+      host = document.createElement("div");
+      host.className = "mermaid-render-host";
+      host.setAttribute("aria-hidden", "true");
+      document.body.append(host);
+    }
+    return host;
+  });
   (() => {
     "use strict";
     const vscode = acquireVsCodeApi();
@@ -19986,6 +20000,7 @@ ${source}`;
       });
       zoom = next2;
       document.documentElement.style.setProperty("--sp-preview-zoom", `${zoom}%`);
+      document.documentElement.style.setProperty("--sp-preview-zoom-factor", String(zoom / 100));
       els.zoomValue.value = `${zoom}%`;
       els.zoomOut.disabled = zoom === previewZoom.minimum;
       els.zoomIn.disabled = zoom === previewZoom.maximum;
@@ -20221,9 +20236,9 @@ ${source}`;
           if (!pre.isConnected || !code2.isConnected) return;
           const img = document.createElement("img");
           img.className = "mermaid-diagram";
-          img.alt = "Mermaid diagram";
+          img.alt = diagram.alt;
           img.src = diagram.src;
-          if (diagram.width) img.width = diagram.width;
+          if (diagram.width) img.style.setProperty("--mermaid-width", `${diagram.width}px`);
           code2.hidden = true;
           pre.classList.add("mermaid");
           pre.insertBefore(img, code2);
@@ -20672,6 +20687,9 @@ ${source}`;
         choices[at < 0 ? 0 : nextIndex].focus();
       }
     });
+    new MutationObserver(() => {
+      if (model?.previewTheme === "auto") render();
+    }).observe(document.body, { attributeFilter: ["class"] });
     window.addEventListener("message", (event) => {
       const message = event.data;
       if (message?.type === "sourceScroll" && Number.isFinite(message.ratio) && message.ratio >= 0 && message.ratio <= 1) {

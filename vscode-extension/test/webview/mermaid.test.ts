@@ -4,14 +4,14 @@ import test from "node:test";
 import { createMermaidRenderer, mermaidDark, type MermaidApi } from "../../src/webview/mermaid";
 
 function fakeMermaid(fail = false) {
-  const calls: { theme: unknown; source: string }[] = [];
+  const calls: { theme: unknown; source: string; container?: unknown }[] = [];
   let theme: unknown;
   const api: MermaidApi = {
     initialize: (config) => { theme = config.theme; },
-    render: async (_id, source) => {
-      calls.push({ theme, source });
+    render: async (_id, source, container) => {
+      calls.push({ theme, source, container });
       if (fail) throw new Error("Parse error");
-      return { svg: `<svg viewBox="0 0 120.4 40"><text>${source}</text></svg>` };
+      return { svg: `<svg aria-roledescription="flowchart-v2" viewBox="0 0 120.4 40"><text>${source}</text></svg>` };
     },
   };
   return { api, calls };
@@ -24,12 +24,25 @@ test("mermaid diagrams render once per source and theme, then come from the cach
 
   const first = await render("graph TD; A-->B", false);
   assert.equal(first.width, 121);
+  assert.equal(first.alt, "Mermaid flowchart diagram");
   assert.match(first.src, /^data:image\/svg\+xml;charset=utf-8,%3Csvg/);
   assert.deepEqual(render("graph TD; A-->B", false), first);
 
   await Promise.all([render("graph TD; A-->B", true), render("graph TD; C-->D", false)]);
   assert.deepEqual(calls.map((call) => call.theme), ["default", "dark", "default"]);
   assert.equal(loads, 3);
+});
+
+test("mermaid alt text names the diagram type without a doubled \"diagram\"", async () => {
+  const api: MermaidApi = { initialize: () => undefined, render: async () => ({ svg: '<svg aria-roledescription="classDiagram" viewBox="0 0 10 10"></svg>' }) };
+  assert.equal((await createMermaidRenderer(async () => api)("classDiagram", false)).alt, "Mermaid class diagram");
+});
+
+test("mermaid lays diagrams out in the given host instead of <body>", async () => {
+  const { api, calls } = fakeMermaid();
+  const host = { id: "host" } as unknown as Element;
+  await createMermaidRenderer(async () => api, () => host)("graph TD; A-->B", false);
+  assert.equal(calls[0].container, host);
 });
 
 test("a failed mermaid render rejects and is retried next time instead of being cached", async () => {
