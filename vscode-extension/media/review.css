@@ -101,6 +101,9 @@ main { --split-position: 50%; --split-hit: 6px; display: grid; flex: 1 1 auto; g
 .document pre, .document code { background: var(--sp-code); font-family: var(--vscode-editor-font-family, monospace); }
 .document pre { border: 1px solid var(--sp-border); border-radius: var(--sp-radius); overflow: auto; padding: 10px; white-space: pre-wrap; }
 .document pre.fenced-code { min-height: 3em; padding-top: 2.2em; position: relative; white-space: pre; }
+.document pre.mermaid { white-space: normal; }
+.mermaid-diagram { display: block; height: auto; margin: 0 auto; max-width: 100%; }
+.mermaid-error { color: var(--sp-muted); font-family: var(--vscode-font-family, sans-serif); font-size: .85em; margin-bottom: .5em; white-space: normal; }
 .fence-language { background: var(--sp-surface); border: 0; border-radius: var(--sp-radius-sm); color: var(--sp-text); font: inherit; font-size: .72em; line-height: 1.2; max-width: calc(100% - 12px); min-height: 20px; padding: 1px 4px; position: absolute; right: 5px; top: 4px; }
 .fence-language:focus-visible { outline: 2px solid var(--sp-focus); outline-offset: 2px; }
 .fence-language:disabled { opacity: .65; }

@@ -4,8 +4,20 @@ import { reviewCountStatus } from "./reviewStatus";
 import { fenceLanguageOptions } from "./fenceLanguages";
 import { cleanFenceIdentityText } from "./fenceIdentity";
 import { normalizePreviewZoom, previewZoom } from "./zoom";
+import { createMermaidRenderer, mermaidDark } from "./mermaid";
 
 const markdown = createMarkdownRenderer();
+// Captured while this script runs synchronously; mermaid is only loaded once a diagram needs it.
+const scriptNonce = document.currentScript?.nonce || "";
+let mermaidLoad = null;
+const renderMermaid = createMermaidRenderer(() => mermaidLoad ??= new Promise((resolve, reject) => {
+  const script = document.createElement("script");
+  script.nonce = scriptNonce;
+  script.src = document.body.dataset.mermaidSrc || "";
+  script.onload = () => window.mermaid ? resolve(window.mermaid) : reject(new Error("Mermaid did not load"));
+  script.onerror = () => { mermaidLoad = null; reject(new Error("Mermaid could not be loaded")); };
+  document.head.append(script);
+}));
 
 (() => {
   "use strict";
@@ -285,6 +297,37 @@ const markdown = createMarkdownRenderer();
     cleanFenceMarkers(container);
     attachTaskControls(container);
     attachFenceControls(container);
+    attachMermaidDiagrams(container);
+  }
+  function attachMermaidDiagrams(container) {
+    const dark = mermaidDark(model.previewTheme, document.body.classList);
+    for (const pre of container.querySelectorAll("pre[data-sharp-pen-fence-language='mermaid']")) {
+      const code = pre.querySelector("code");
+      const source = code?.textContent?.trim();
+      if (!source) continue;
+      const show = (diagram) => {
+        if (!pre.isConnected || !code.isConnected) return;
+        const img = document.createElement("img");
+        img.className = "mermaid-diagram";
+        img.alt = "Mermaid diagram";
+        img.src = diagram.src;
+        if (diagram.width) img.width = diagram.width;
+        code.hidden = true;
+        pre.classList.add("mermaid");
+        pre.insertBefore(img, code);
+      };
+      const fail = () => {
+        if (!pre.isConnected || pre.querySelector(".mermaid-error")) return;
+        const error = document.createElement("div");
+        error.className = "mermaid-error";
+        error.textContent = "Mermaid diagram could not be rendered; showing its source.";
+        pre.insertBefore(error, code);
+      };
+      try {
+        const result = renderMermaid(source, dark);
+        if (result instanceof Promise) result.then(show, fail); else show(result);
+      } catch { fail(); }
+    }
   }
   function attachFenceControls(container) {
     const fences = [...container.querySelectorAll("pre[data-sharp-pen-fence-index]")];

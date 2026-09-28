@@ -19846,8 +19846,54 @@
     return Math.max(previewZoom.minimum, Math.min(previewZoom.maximum, Math.round(value)));
   }
 
+  // src/webview/mermaid.ts
+  var CACHE_LIMIT = 100;
+  function mermaidDark(previewTheme, bodyClasses) {
+    return previewTheme === "dark" || previewTheme === "auto" && (bodyClasses.contains("vscode-dark") || bodyClasses.contains("vscode-high-contrast"));
+  }
+  function toDiagram(svg) {
+    const width = Number(/viewBox="[-\d.]+\s+[-\d.]+\s+([\d.]+)/.exec(svg)?.[1]);
+    return { src: `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`, width: Number.isFinite(width) && width > 0 ? Math.ceil(width) : 0 };
+  }
+  function createMermaidRenderer(load) {
+    const cache = /* @__PURE__ */ new Map();
+    let queue = Promise.resolve();
+    let count = 0;
+    return (source, dark) => {
+      const key = `${dark ? "dark" : "default"}
+${source}`;
+      const cached = cache.get(key);
+      if (cached) return cached;
+      if (cache.size >= CACHE_LIMIT) cache.clear();
+      const pending = queue.then(async () => {
+        const mermaid = await load();
+        mermaid.initialize({ startOnLoad: false, securityLevel: "strict", suppressErrorRendering: true, theme: dark ? "dark" : "default" });
+        return toDiagram((await mermaid.render(`sharp-pen-mermaid-${++count}`, source)).svg);
+      });
+      queue = pending.catch(() => void 0);
+      cache.set(key, pending);
+      pending.then((diagram) => {
+        if (cache.get(key) === pending) cache.set(key, diagram);
+      }, () => cache.delete(key));
+      return pending;
+    };
+  }
+
   // src/webview/reviewClient.js
   var markdown = createMarkdownRenderer();
+  var scriptNonce = document.currentScript?.nonce || "";
+  var mermaidLoad = null;
+  var renderMermaid = createMermaidRenderer(() => mermaidLoad ??= new Promise((resolve, reject) => {
+    const script = document.createElement("script");
+    script.nonce = scriptNonce;
+    script.src = document.body.dataset.mermaidSrc || "";
+    script.onload = () => window.mermaid ? resolve(window.mermaid) : reject(new Error("Mermaid did not load"));
+    script.onerror = () => {
+      mermaidLoad = null;
+      reject(new Error("Mermaid could not be loaded"));
+    };
+    document.head.append(script);
+  }));
   (() => {
     "use strict";
     const vscode = acquireVsCodeApi();
@@ -20163,6 +20209,40 @@
       cleanFenceMarkers(container);
       attachTaskControls(container);
       attachFenceControls(container);
+      attachMermaidDiagrams(container);
+    }
+    function attachMermaidDiagrams(container) {
+      const dark = mermaidDark(model.previewTheme, document.body.classList);
+      for (const pre of container.querySelectorAll("pre[data-sharp-pen-fence-language='mermaid']")) {
+        const code2 = pre.querySelector("code");
+        const source = code2?.textContent?.trim();
+        if (!source) continue;
+        const show = (diagram) => {
+          if (!pre.isConnected || !code2.isConnected) return;
+          const img = document.createElement("img");
+          img.className = "mermaid-diagram";
+          img.alt = "Mermaid diagram";
+          img.src = diagram.src;
+          if (diagram.width) img.width = diagram.width;
+          code2.hidden = true;
+          pre.classList.add("mermaid");
+          pre.insertBefore(img, code2);
+        };
+        const fail = () => {
+          if (!pre.isConnected || pre.querySelector(".mermaid-error")) return;
+          const error2 = document.createElement("div");
+          error2.className = "mermaid-error";
+          error2.textContent = "Mermaid diagram could not be rendered; showing its source.";
+          pre.insertBefore(error2, code2);
+        };
+        try {
+          const result = renderMermaid(source, dark);
+          if (result instanceof Promise) result.then(show, fail);
+          else show(result);
+        } catch {
+          fail();
+        }
+      }
     }
     function attachFenceControls(container) {
       const fences = [...container.querySelectorAll("pre[data-sharp-pen-fence-index]")];

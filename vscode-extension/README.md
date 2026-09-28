@@ -57,6 +57,8 @@ longer matches.
   languages and syntax highlighting for supported languages. Fence metadata is
   preserved; indented code blocks remain plain because Markdown gives them no
   language metadata.
+- `mermaid` fenced code blocks render as diagrams, following the preview theme;
+  a diagram that fails to parse shows its source instead.
 - Light, Dark, and Auto preview themes, including high-contrast support.
 - Responsive review layout: wide panels offer side-by-side panes; narrower
   panels switch to Inline view and move secondary actions into the overflow.
