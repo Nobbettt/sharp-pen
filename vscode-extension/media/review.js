@@ -20705,6 +20705,10 @@ ${source}`;
       const focusId = focusedSuggestionId();
       const taskFocus = focusedTask();
       const fenceFocus = focusedFence();
+      if (model && model.documentId !== message.model.documentId) {
+        lastState = null;
+        cancelRequested = false;
+      }
       model = message.model;
       const completedAnalysis = lastState === "analyzing" && model.state === "ready" && hasSuggestions() && !model.error && !cancelRequested;
       if (completedAnalysis) {

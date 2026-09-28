@@ -743,6 +743,8 @@ const renderMermaid = createMermaidRenderer(() => mermaidLoad ??= new Promise((r
     const focusId = focusedSuggestionId();
     const taskFocus = focusedTask();
     const fenceFocus = focusedFence();
+    // Another document's state isn't a transition of this one (e.g. its "ready" must not read as analysis finishing).
+    if (model && model.documentId !== message.model.documentId) { lastState = null; cancelRequested = false; }
     model = message.model;
     const completedAnalysis = lastState === "analyzing" && model.state === "ready" && hasSuggestions() && !model.error && !cancelRequested;
     if (completedAnalysis) { view = "inline"; splitPosition = 50; persist(); }

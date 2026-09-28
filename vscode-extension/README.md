@@ -32,6 +32,10 @@ and edit their source marker immediately, each as its own undoable edit.
 - Work in the document you already know. Suggestions are presented in a
   faithful rendered Markdown preview, while the original VS Code editor stays
   open beside it.
+- One review panel follows the document you're editing: switch to another
+  Markdown or plain-text file and the panel shows its review. Each document
+  keeps its own suggestions and staged choices while another is shown; closing
+  the panel ends them all.
 - Scroll the source editor or preview and the other follows to the same relative
   document position.
 - Zoom the preview with the bottom-right controls, Ctrl/Cmd-wheel or trackpad

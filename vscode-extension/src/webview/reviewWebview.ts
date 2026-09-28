@@ -16,6 +16,8 @@ export interface WebviewSuggestion {
 }
 
 export interface ReviewWebviewModel {
+  /** The source document's URI: the one review panel switches documents as the active editor changes. */
+  documentId: string;
   title: string;
   format: "markdown" | "plaintext";
   currentSource: string;

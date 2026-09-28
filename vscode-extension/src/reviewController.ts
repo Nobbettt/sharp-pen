@@ -50,7 +50,7 @@ function tooLargeOrComplex(source: string, format: "markdown" | "plaintext"): bo
 const trustErrorMessage = "Trust this workspace before running sharp-pen analysis.";
 
 export class ReviewController implements vscode.Disposable {
-  readonly panel: vscode.WebviewPanel;
+  private host: vscode.WebviewPanel | undefined;
   private document: vscode.TextDocument;
   private review: Review | undefined;
   private decisions: Decisions = {};
@@ -65,7 +65,7 @@ export class ReviewController implements vscode.Disposable {
   private codeFenceLanguages: readonly string[] = [];
   private ignoreEditorScrollUntil = 0;
   private disposed = false;
-  private readonly disposables: vscode.Disposable[];
+  private panelDisposables: vscode.Disposable[] = [];
 
   constructor(
     document: vscode.TextDocument,
@@ -74,23 +74,49 @@ export class ReviewController implements vscode.Disposable {
     private readonly onDispose: () => void,
     column: vscode.ViewColumn,
     private previewTheme: PreviewTheme = "light",
+    /** An open review panel to take over (see attach) instead of creating one. */
+    panel?: vscode.WebviewPanel,
   ) {
     this.document = document;
-    this.panel = vscode.window.createWebviewPanel("sharpPen.review", `sharp-pen: ${path.basename(document.fileName)}`, column, {
-      enableScripts: true,
-      enableCommandUris: false,
-      localResourceRoots: [vscode.Uri.joinPath(extensionUri, "media")],
-    });
-    this.panel.webview.html = reviewWebviewHtml(this.panel.webview, extensionUri);
-    this.disposables = [
-      this.panel.onDidDispose(() => this.dispose()),
-      this.panel.webview.onDidReceiveMessage((message: unknown) => this.receive(message)),
-    ];
+    if (panel) this.attach(panel);
+    else {
+      const created = vscode.window.createWebviewPanel("sharpPen.review", `sharp-pen: ${path.basename(document.fileName)}`, column, {
+        enableScripts: true,
+        enableCommandUris: false,
+        localResourceRoots: [vscode.Uri.joinPath(extensionUri, "media")],
+      });
+      created.webview.html = reviewWebviewHtml(created.webview, extensionUri);
+      this.bind(created);
+    }
     void installedLanguageIds().then((languages) => { if (!this.disposed) { this.codeFenceLanguages = languages; this.postState(); } }, () => undefined);
   }
 
+  /** The review panel while this document is the one it shows; undefined while another document has it. */
+  get panel(): vscode.WebviewPanel | undefined {
+    return this.host;
+  }
+
+  /**
+   * Shows this document's review in an already-open panel. There is one review panel: it follows the
+   * active document, and each document keeps its own review, staged choices, and analysis while hidden.
+   */
+  attach(panel: vscode.WebviewPanel): void {
+    this.bind(panel);
+    panel.title = `sharp-pen: ${path.basename(this.document.fileName)}`;
+    this.postState();
+    this.postEditorScroll();
+  }
+
+  /** Stops showing this review, handing back its panel open and untouched. */
+  detach(): vscode.WebviewPanel | undefined {
+    for (const disposable of this.panelDisposables.splice(0)) disposable.dispose();
+    const panel = this.host;
+    this.host = undefined;
+    return panel;
+  }
+
   reveal(column: vscode.ViewColumn): void {
-    this.panel.reveal(column, true);
+    this.host?.reveal(column, true);
   }
 
   setPreviewTheme(previewTheme: PreviewTheme): void {
@@ -124,7 +150,7 @@ export class ReviewController implements vscode.Disposable {
 
   /** Posts a zoom command to the webview; the review panel owns the zoom level. */
   zoom(command: "in" | "out" | "reset"): void {
-    void Promise.resolve(this.panel.webview.postMessage({ type: "zoom", command })).catch(() => undefined);
+    this.post({ type: "zoom", command });
   }
 
   /** Accepted options that Apply has not yet written to the document; explicit keeps discard nothing. */
@@ -163,7 +189,7 @@ export class ReviewController implements vscode.Disposable {
     const visibleLines = visible.end.line - visible.start.line + 1;
     const maximumTopLine = Math.max(0, this.document.lineCount - visibleLines);
     const ratio = maximumTopLine ? Math.min(1, visible.start.line / maximumTopLine) : 0;
-    void Promise.resolve(this.panel.webview.postMessage({ type: "sourceScroll", ratio })).catch(() => undefined);
+    this.post({ type: "sourceScroll", ratio });
   }
 
   async analyze(): Promise<void> {
@@ -303,11 +329,24 @@ export class ReviewController implements vscode.Disposable {
     this.disposed = true;
     try {
       this.cancelAnalysis();
-      for (const disposable of this.disposables.splice(0)) disposable.dispose();
-      this.panel.dispose();
+      this.detach()?.dispose();
     } finally {
       this.onDispose();
     }
+  }
+
+  private bind(panel: vscode.WebviewPanel): void {
+    this.detach();
+    this.host = panel;
+    this.panelDisposables = [
+      panel.onDidDispose(() => this.dispose()),
+      panel.webview.onDidReceiveMessage((message: unknown) => this.receive(message)),
+    ];
+  }
+
+  private post(message: unknown): void {
+    if (this.disposed || !this.host) return;
+    void Promise.resolve(this.host.webview.postMessage(message)).catch(() => undefined);
   }
 
   private receive(message: unknown): void {
@@ -461,7 +500,7 @@ export class ReviewController implements vscode.Disposable {
   }
 
   private postState(): void {
-    if (this.disposed) return;
+    if (this.disposed || !this.host) return;
     const source = this.review?.currentSource ?? this.document.getText();
     const format = this.document.languageId === "markdown" ? "markdown" : "plaintext";
     const oversized = tooLargeOrComplex(source, format);
@@ -471,6 +510,7 @@ export class ReviewController implements vscode.Disposable {
       decided: Object.hasOwn(this.decisions, item.id),
     });
     const model: ReviewWebviewModel = {
+      documentId: this.document.uri.toString(),
       title: path.basename(this.document.fileName), format,
       currentSource: oversized ? "" : source,
       documentVersion: this.document.version,
@@ -490,6 +530,6 @@ export class ReviewController implements vscode.Disposable {
       ...(this.error ? { error: this.error } : oversized ? { error: { message: "Document is too large or complex to analyze." } } : {}),
       ...(this.notice ? { notice: this.notice } : {}),
     };
-    void Promise.resolve(this.panel.webview.postMessage({ type: "state", model })).catch(() => undefined);
+    this.post({ type: "state", model });
   }
 }
