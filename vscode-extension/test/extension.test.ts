@@ -33,7 +33,7 @@ test("standalone model command errors warn generically and sync an open panel", 
 test("openReview and analyze resolve the menu's clicked resource instead of only the active editor", () => {
   const source = readFileSync("src/extension.ts", "utf8");
   assert.match(source, /registerCommand\("sharpPen\.openReview", \(uri\?: vscode\.Uri\) => \{ const document = activeDocument\(uri\); if \(document\) open\(document\); \}\)/);
-  assert.match(source, /registerCommand\("sharpPen\.analyze", \(uri\?: vscode\.Uri\) => \{ const document = activeDocument\(uri\); if \(document\) void open\(document\)\.analyze\(\); \}\)/);
+  assert.match(source, /registerCommand\("sharpPen\.analyze", async \(uri\?: vscode\.Uri\) => \{\s+const document = activeDocument\(uri\);\s+if \(!document\) return undefined;\s+const controller = open\(document\);/);
   assert.match(source, /function resolveDocument\(uri\?: vscode\.Uri\): vscode\.TextDocument \| undefined \{/);
   assert.match(source, /vscode\.workspace\.textDocuments\.find\(\(candidate\) => candidate\.uri\.toString\(\) === uri\.toString\(\)\)/);
 });

@@ -239,6 +239,11 @@ export class ReviewController implements vscode.Disposable {
     }
   }
 
+  /** The outcome is otherwise only visible inside the webview; the analyze command returns it for the integration smoke test. */
+  status(): { state: ReviewWebviewModel["state"]; error?: string } {
+    return { state: this.state, error: this.error?.message };
+  }
+
   cancelAnalysis(): void {
     const job = this.analysis;
     if (!job) return;

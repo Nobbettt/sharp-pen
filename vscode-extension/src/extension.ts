@@ -75,7 +75,13 @@ export function activate(context: vscode.ExtensionContext): void {
   };
   context.subscriptions.push(
     vscode.commands.registerCommand("sharpPen.openReview", (uri?: vscode.Uri) => { const document = activeDocument(uri); if (document) open(document); }),
-    vscode.commands.registerCommand("sharpPen.analyze", (uri?: vscode.Uri) => { const document = activeDocument(uri); if (document) void open(document).analyze(); }),
+    vscode.commands.registerCommand("sharpPen.analyze", async (uri?: vscode.Uri) => {
+      const document = activeDocument(uri);
+      if (!document) return undefined;
+      const controller = open(document);
+      await controller.analyze();
+      return controller.status();
+    }),
     vscode.commands.registerCommand("sharpPen.cancelAnalysis", () => {
       const document = activeDocumentOrUndefined();
       const controller = (document && controllerFor(document)) ?? shown;

@@ -13,3 +13,6 @@ marketing/
 
 # personal planning notes, never published
 private-docs/
+
+# VS Code downloaded by the extension integration tests
+.vscode-test/
