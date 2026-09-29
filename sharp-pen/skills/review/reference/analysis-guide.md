@@ -2,7 +2,26 @@
 
 Every entry must be small enough to judge at a glance and honest about what it
 is. A change set that quietly rewrites the author's voice is a failure even if
-the English is better.
+the prose is better.
+
+## Language — identify it first
+
+Before writing any entry, work out the draft's language and spelling variant
+from the text itself. It is never given, and the author is never asked.
+
+- Review in that language, by its own rules: Swedish *särskrivning* and
+  *de/dem*, German noun capitalisation, the space French puts before `; : ! ?`.
+  The English examples below show the kind of fault, not the rule to apply.
+- Keep the spelling variant — US or UK English (color/colour, -ize/-ise),
+  Brazilian or European Portuguese. Never move a draft to another variant; flag
+  only a variant used inconsistently within the draft, at level 1.
+- Never translate. Passages in another language — quotations, loanwords, a
+  sentence in a second language — are left alone.
+- Write every `note` in the draft's main language, and set `language` in
+  `changes.json` to its BCP 47 tag (`sv`, `en-GB`, `pt-BR`). The page marks the
+  text with it, so screen readers and spellcheck read it correctly.
+- If you cannot tell which language most of the prose is in, say so in chat
+  instead of guessing.
 
 ## Level 1 — spelling and grammar
 
@@ -14,7 +33,7 @@ spaces, comma splices, commas that change the reading.
 Never reorders words, never changes vocabulary, never cuts. If you are improving
 the sentence, it belongs in level 2.
 
-## Level 2 — sentence construction
+## Level 2 — sentence structure and clarity
 
 One entry per sentence (or tightly linked pair): broken parallel structure,
 fragments, three clauses that want splitting, adverbials wedged between verb and
@@ -59,6 +78,10 @@ builder matches exactly and refuses anything else.
 Do not guess silently. A likely reading goes in as a level-1 entry whose note
 says "Guess at intent — check this one." No likely reading means leave the text
 alone and raise it in chat instead.
+
+Leave alone entirely: quoted text, product names, technical terms, anything that
+looks like code or a file name (`camelCase`, `snake_case`, `name.ext`), and
+fragments the author clearly uses on purpose for effect.
 
 Also raise in chat, never in the change set: placeholders the author left in,
 missing sections, doubtful facts, and anything you deliberately skipped (typos
