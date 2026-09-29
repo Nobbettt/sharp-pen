@@ -62,6 +62,16 @@ you, so the choice of wording stays with the author. Every suggestion is a
 separate click. The author stays the author. The AI is a careful copy editor
 that never touches the text without asking.
 
+## Languages
+
+sharp-pen works in every language that your AI provider of choice, and the model
+you pick there, supports. There is nothing to set: it works out the language
+from the text itself, reviews by that language's own rules, keeps its spelling
+variant (US or UK English, Brazilian or European Portuguese), writes its notes in
+it, and never translates. A draft that mixes languages is reviewed passage by
+passage. How good the review is in a given language depends on the model;
+widely used languages get the most reliable results.
+
 ## Try it
 
 No install needed: the **[live demo](https://nobbettt.github.io/sharp-pen/)** is
