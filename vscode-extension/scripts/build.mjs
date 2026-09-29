@@ -1,4 +1,5 @@
 import { copyFile } from "node:fs/promises";
+import { pathToFileURL } from "node:url";
 import { build } from "esbuild";
 
 /** The extension host code bundled into one file, so activation loads it (and its npm dependencies) in one read. */
@@ -15,7 +16,8 @@ export const webviewBuilds = [
   banner: { js: `/* Generated from ${entryPoint}; do not edit. */` }, outfile,
 }));
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+// pathToFileURL, not `file://${argv[1]}`: on Windows argv[1] is `D:\...`, which never matched and skipped the build.
+if (import.meta.url === pathToFileURL(process.argv[1]).href) {
   // Mermaid ships its own self-contained bundle; the webview loads it lazily for ```mermaid fences.
   await copyFile("node_modules/mermaid/dist/mermaid.min.js", "media/mermaid.min.js");
   await Promise.all([extensionBuild, ...webviewBuilds].map((options) => build(options)));
