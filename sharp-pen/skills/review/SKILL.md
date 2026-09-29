@@ -1,6 +1,6 @@
 ---
 name: sharp-pen
-description: Review a piece of writing and hand back an interactive two-pane page where the author accepts each suggested change one click at a time, choosing between alternative phrasings. Use whenever someone pastes or points at a draft — article, blog post, essay, README, newsletter, cover letter, email, documentation — and asks for proofreading, grammar and spelling checks, sentence-level or sentence-construction feedback, copy-editing, or just "look over this text". Also use when they type sharp-pen followed by text. Do NOT use when they want the corrected text applied directly with no review step, a rewrite in a different voice, a translation, a summary, or feedback on argument and structure rather than wording.
+description: Review a piece of writing and hand back an interactive two-pane page where the author accepts each suggested change one click at a time, choosing between alternative phrasings. Use whenever someone pastes or points at a draft — article, blog post, essay, README, newsletter, cover letter, email, documentation — and asks for proofreading, grammar and spelling checks, sentence-structure or clarity feedback, copy-editing, or just "look over this text" — in any language. Also use when they type sharp-pen followed by text. Do NOT use when they want the corrected text applied directly with no review step, a rewrite in a different voice, a translation, a summary, or feedback on argument and structure rather than wording.
 ---
 
 # sharp-pen
@@ -8,7 +8,8 @@ description: Review a piece of writing and hand back an interactive two-pane pag
 Builds a review page from a draft: author's text left, suggestions right, every
 difference clickable. One click accepts; changes with more than one reasonable
 phrasing open a dropdown. Two passes toggled in the page — **Level 1** spelling
-and grammar, **Level 2** sentence construction (*meningsbyggnad*).
+and grammar, **Level 2** sentence structure and clarity. Works in the draft's own
+language, which you identify from the text.
 
 ## Workflow
 
@@ -42,11 +43,17 @@ resolved path whenever you write a file with anything other than bash.
 **1. Save the source untouched** to `$RUN/source.md` — no fixed typos, no
 normalised quotes, no reflowed lines. Every anchor matches it byte for byte.
 
-**2. Read `$SP/reference/analysis-guide.md`, write `$RUN/changes.json`:**
+**2. Identify the language, read `$SP/reference/analysis-guide.md`, write
+`$RUN/changes.json`.** Work out the draft's language — or languages — and spelling
+variant from the text itself; never ask the author and never translate. Review
+each passage by the rules of its own language, write each note in the language
+of the text it is about, and set `language` to the main language's BCP 47 tag
+(`sv`, `en-GB`, `pt-BR`):
 
 ```json
 {
   "title": "Agentic engineering article",
+  "language": "en",
   "level1": [
     {"from": "planing", "occurrence": 2, "options": ["planning"],
      "note": "Typo (planing = shaving wood)."},
@@ -88,13 +95,16 @@ Iterating once or twice is normal and not worth reporting.
   foreground process, give the author the command. Give them the file path too:
   it sits outside their project and opens fine by double-clicking.
 
-**5. Reply briefly:** counts per level, then anything you were unsure about —
+**5. Reply briefly:** counts per level and the language(s) you reviewed in (so
+the author can correct them), then anything you were unsure about —
 guesses at intent, placeholders left in the text, typos inside quoted material
 or code they may want verbatim. Do not restate corrections; the page shows them.
+Reply in the language the author is writing to you in, not the draft's language.
 
 ## Non-negotiables
 
 - The left pane is the author's text exactly as given.
+- Review each passage in its own language and spelling variant. Never translate.
 - Suggest form, not substance. Never change what a sentence claims, remove their
   hedges, or make casual prose corporate.
 - One entry = one decision. Fixes that must be accepted together are one entry.

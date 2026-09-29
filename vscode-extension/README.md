@@ -21,6 +21,9 @@ and edit their source marker immediately, each as its own undoable edit.
 
 ## Why sharp-pen
 
+- Write in any language your AI model supports. sharp-pen detects the
+  language from the text, with nothing to set, and never translates. See
+  [AI clients and models](#ai-clients-and-models).
 - Keep your voice. Level 1 catches spelling, grammar, punctuation, and other
   clear writing errors. Level 2 focuses on sentence construction without
   rewriting the substance of your work.
@@ -85,6 +88,14 @@ choices are scoped to their provider, so a model selected for one CLI is never
 sent to another. Use the client default, an available discovered model, or a
 manual model ID.
 
+sharp-pen supports every language that your AI client of choice, and the model
+you choose in it, supports. It detects the language from the text itself, so
+there is no language setting: it reviews by that language's own rules, keeps its
+spelling variant (US or UK English, Brazilian or European Portuguese), writes its
+notes in it, and never translates. A document that mixes languages is reviewed
+passage by passage. Review quality in a given language depends on the model;
+widely used languages get the most reliable results.
+
 Any installed CLI version is accepted as long as it still supports the flags
 sharp-pen uses to run it without tools. sharp-pen checks this on first use and
 again after the CLI is upgraded, and refuses a version that lacks one.
@@ -119,7 +130,7 @@ If you have downloaded a release VSIX, use **Extensions: Install from VSIX...**
 in VS Code, or run:
 
 ```sh
-code --install-extension sharp-pen-0.1.0.vsix
+code --install-extension sharp-pen-0.3.0.vsix
 ```
 
 Release builds are available from [GitHub Releases](https://github.com/Nobbettt/sharp-pen/releases).

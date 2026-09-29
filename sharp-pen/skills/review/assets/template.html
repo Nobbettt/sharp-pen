@@ -371,6 +371,8 @@ const leftDoc = document.getElementById('leftDoc');
 const rightDoc = document.getElementById('rightDoc');
 const spans = {left:{}, right:{}, inline:{}};
 const inlineDoc = document.getElementById('inlineDoc');
+// The draft's language, so screen readers and the browser's spellcheck treat the text correctly.
+if (DATA.language) for (const doc of [leftDoc, rightDoc, inlineDoc]) doc.lang = DATA.language;
 const mainEl = document.querySelector('main');
 let VIEW = 'split';
 const anyEl = id => spans.left[id] || spans.inline[id];
@@ -461,10 +463,10 @@ function render(){
     done + ' of ' + keys.length + ' accepted  ·  Level ' + LEVEL;
   document.getElementById('fill').style.width = (done / keys.length * 100) + '%';
   document.getElementById('h1').textContent =
-    LEVEL === 1 ? 'Level 1 — spelling & grammar' : 'Level 2 — sentence construction';
+    LEVEL === 1 ? 'Level 1 — spelling & grammar' : 'Level 2 — sentence structure & clarity';
   document.getElementById('foot').textContent = LEVEL === 1
     ? 'Level 1: spelling, typos, agreement and clear grammar slips only — no rewriting. ' + (keys.length - done) + ' still open.'
-    : 'Level 2: sentence construction — accepting one of these replaces the whole sentence, including any Level 1 fixes inside it. ' + (keys.length - done) + ' still open.';
+    : 'Level 2: sentence structure and clarity — accepting one of these replaces the whole sentence, including any Level 1 fixes inside it. ' + (keys.length - done) + ' still open.';
   document.querySelectorAll('.lvl').forEach(b => b.classList.toggle('on', +b.dataset.level === LEVEL));
 }
 

@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.3.0
+
+- Review documents in their own language, detected automatically from the text with nothing to set. sharp-pen reviews by that language's rules, keeps its spelling variant (US or UK English, Brazilian or European Portuguese), writes its notes in it, and never translates.
+- Review documents that mix languages passage by passage: each passage is checked in its own language and gets notes in that language. Only short insertions from another language, such as quotations, loanwords and names, are left unchanged.
+- Leave quoted text, product names, technical terms, code-like text such as `camelCase` or file names, and deliberate fragments alone.
+- Prefer fewer, confident suggestions: sentences that read well get none.
+- More reliable responses from every AI client: the prompt includes a worked example, states the response format once, and repeats the output rule after the document.
+
 ## 0.2.0
 
 - Render ```` ```mermaid ```` fenced code blocks as diagrams in the preview, following the preview theme. Invalid diagrams fall back to their source.

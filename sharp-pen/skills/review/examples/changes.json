@@ -1,5 +1,6 @@
 {
   "title": "Example draft",
+  "language": "en",
   "level1": [
     {"from": "New members joins", "options": ["New members join"], "note": "Plural subject, plural verb."},
     {"from": "every few month", "options": ["every few months"], "note": "'Few' takes a plural noun."},

@@ -19,6 +19,8 @@ import re
 import sys
 from pathlib import Path
 
+# BCP 47 language tag such as "sv", "en-GB" or "pt-BR"; the page sets it as the text panes' lang.
+LANGUAGE = re.compile(r"^[A-Za-z]{2,3}(-[A-Za-z0-9]{1,8})*$")
 TOKEN = "\u27e6{}\u27e7"          # ⟦c1⟧ — outside markdown syntax, survives rendering
 SENTINEL = re.compile(r"[\u27e6\u27e7]")
 
@@ -102,6 +104,13 @@ def build(source, changes, title):
             "Remove them from the source before building."
         )
 
+    language = changes.get("language", "")
+    if not isinstance(language, str) or (language and not LANGUAGE.match(language)):
+        raise ValidationError(
+            "'language' must be a BCP 47 tag for the draft's main language, "
+            "such as \"sv\", \"en-GB\" or \"pt-BR\"; got {!r}.".format(language)
+        )
+
     l1 = changes.get("level1", [])
     l2 = changes.get("level2", [])
     if not l1 and not l2:
@@ -183,6 +192,7 @@ def build(source, changes, title):
 
     return {
         "title": title,
+        "language": language,
         "source": raw,
         "level1": level1,
         "level2": level2,
