@@ -1,4 +1,4 @@
-name: Release skill
+name: Release skill and plugin
 
 # Every merge to main that touches the skill becomes a release: the patch
 # number of the last v* tag is bumped, the skill is zipped, and a GitHub
@@ -12,7 +12,7 @@ name: Release skill
 on:
   push:
     branches: [main]
-    paths: ['sharp-pen/**', '.github/workflows/release.yml']
+    paths: ['sharp-pen/**', '.github/workflows/release-skill-and-plugin.yml']
   workflow_dispatch:
 
 permissions:

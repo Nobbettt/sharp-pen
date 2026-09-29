@@ -67,7 +67,7 @@ button:focus-visible, input:focus-visible, .suggestion:focus-visible { outline: 
 #notice { align-items: center; background: var(--sp-surface); border: 1px solid var(--sp-border); border-radius: 0 0 var(--sp-radius) var(--sp-radius); color: var(--sp-muted); display: flex; flex: 0 0 auto; gap: 8px; margin: 0 10px; padding: 7px 9px; }
 #notice[hidden] { display: none; }
 main { --split-position: 50%; --split-hit: 6px; display: grid; flex: 1 1 auto; gap: 0; grid-template-columns: minmax(0, var(--split-position)) var(--split-hit) minmax(0, calc(100% - var(--split-position) - var(--split-hit))); min-height: 0; padding: 0; }
-.pane { background: var(--sp-bg); border: 1px solid var(--sp-border); border-radius: 0 0 var(--sp-radius) var(--sp-radius); border-top: 0; display: flex; flex-direction: column; min-height: 0; }
+.pane { background: var(--sp-bg); border: 1px solid var(--sp-border); border-radius: 0 0 var(--sp-radius) var(--sp-radius); border-top: 0; display: flex; flex-direction: column; min-height: 0; min-width: 0; }
 #split-divider { background: transparent; cursor: col-resize; position: relative; touch-action: none; }
 #split-divider::before { background: var(--sp-border); content: ""; inset: 0 auto 0 50%; pointer-events: none; position: absolute; transform: translateX(-50%); width: 1px; }
 #split-divider::after { align-items: center; background: var(--sp-raised); border: 1px solid var(--sp-border); border-radius: 999px; color: var(--sp-muted); content: "⋮"; display: flex; font-size: 12px; height: 28px; justify-content: center; left: 50%; line-height: 1; pointer-events: none; position: absolute; top: 50%; transform: translate(-50%, -50%); width: 6px; }
@@ -101,6 +101,11 @@ main { --split-position: 50%; --split-hit: 6px; display: grid; flex: 1 1 auto; g
 .document pre, .document code { background: var(--sp-code); font-family: var(--vscode-editor-font-family, monospace); }
 .document pre { border: 1px solid var(--sp-border); border-radius: var(--sp-radius); overflow: auto; padding: 10px; white-space: pre-wrap; }
 .document pre.fenced-code { min-height: 3em; padding-top: 2.2em; position: relative; white-space: pre; }
+.document pre.mermaid { background: transparent; border: 0; border-radius: 0; padding: 0; white-space: normal; }
+.mermaid-render-host { height: 0; left: 0; overflow: hidden; pointer-events: none; position: fixed; top: 0; visibility: hidden; width: 100vw; }
+/* Zoom scales diagrams like text; past the pane width the diagram scrolls inside its block. */
+.mermaid-diagram { display: block; height: auto; margin: 0 auto; max-width: calc(100% * var(--sp-preview-zoom-factor, 1)); width: calc(var(--mermaid-width, 100%) * var(--sp-preview-zoom-factor, 1)); }
+.mermaid-error { color: var(--sp-muted); font-family: var(--vscode-font-family, sans-serif); font-size: .85em; margin-bottom: .5em; white-space: normal; }
 .fence-language { background: var(--sp-surface); border: 0; border-radius: var(--sp-radius-sm); color: var(--sp-text); font: inherit; font-size: .72em; line-height: 1.2; max-width: calc(100% - 12px); min-height: 20px; padding: 1px 4px; position: absolute; right: 5px; top: 4px; }
 .fence-language:focus-visible { outline: 2px solid var(--sp-focus); outline-offset: 2px; }
 .fence-language:disabled { opacity: .65; }

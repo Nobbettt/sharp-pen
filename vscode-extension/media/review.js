@@ -19846,8 +19846,76 @@
     return Math.max(previewZoom.minimum, Math.min(previewZoom.maximum, Math.round(value)));
   }
 
+  // src/webview/mermaid.ts
+  var CACHE_LIMIT = 100;
+  function mermaidDark(previewTheme, bodyClasses) {
+    return previewTheme === "dark" || previewTheme === "auto" && (bodyClasses.contains("vscode-dark") || bodyClasses.contains("vscode-high-contrast"));
+  }
+  function toDiagram(svg) {
+    const width = Number(/viewBox="[-\d.]+\s+[-\d.]+\s+([\d.]+)/.exec(svg)?.[1]);
+    const type = /aria-roledescription="([\w-]+)"/.exec(svg)?.[1].replace(/-v\d+$/, "").replace(/Diagram$/, "");
+    return {
+      src: `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`,
+      width: Number.isFinite(width) && width > 0 ? Math.ceil(width) : 0,
+      alt: type ? `Mermaid ${type.toLowerCase()} diagram` : "Mermaid diagram"
+    };
+  }
+  function createMermaidRenderer(load, host) {
+    const cache = /* @__PURE__ */ new Map();
+    let queue = Promise.resolve();
+    const waiting = /* @__PURE__ */ new Map();
+    let count = 0;
+    return (source, dark, wanted = () => true) => {
+      const key = `${dark ? "dark" : "default"}
+${source}`;
+      const cached = cache.get(key);
+      if (cached) {
+        waiting.get(key)?.push(wanted);
+        return cached;
+      }
+      if (cache.size >= CACHE_LIMIT) cache.clear();
+      const wants = [wanted];
+      waiting.set(key, wants);
+      const pending = queue.then(async () => {
+        if (waiting.get(key) === wants) waiting.delete(key);
+        if (!wants.some((wantedBy) => wantedBy())) throw new Error("Mermaid render superseded");
+        const mermaid = await load();
+        mermaid.initialize({ startOnLoad: false, securityLevel: "strict", suppressErrorRendering: true, theme: dark ? "dark" : "default" });
+        return toDiagram((await mermaid.render(`sharp-pen-mermaid-${++count}`, source, host?.())).svg);
+      });
+      queue = pending.catch(() => void 0);
+      cache.set(key, pending);
+      pending.then((diagram) => {
+        if (cache.get(key) === pending) cache.set(key, diagram);
+      }, () => cache.delete(key));
+      return pending;
+    };
+  }
+
   // src/webview/reviewClient.js
   var markdown = createMarkdownRenderer();
+  var scriptNonce = document.currentScript?.nonce || "";
+  var mermaidLoad = null;
+  var renderMermaid = createMermaidRenderer(() => mermaidLoad ??= new Promise((resolve, reject) => {
+    const script = document.createElement("script");
+    script.nonce = scriptNonce;
+    script.src = document.body.dataset.mermaidSrc || "";
+    script.onload = () => window.mermaid ? resolve(window.mermaid) : reject(new Error("Mermaid did not load"));
+    script.onerror = () => {
+      mermaidLoad = null;
+      reject(new Error("Mermaid could not be loaded"));
+    };
+    document.head.append(script);
+  }), () => {
+    let host = document.querySelector(".mermaid-render-host");
+    if (!host) {
+      host = document.createElement("div");
+      host.className = "mermaid-render-host";
+      host.setAttribute("aria-hidden", "true");
+      document.body.append(host);
+    }
+    return host;
+  });
   (() => {
     "use strict";
     const vscode = acquireVsCodeApi();
@@ -19940,6 +20008,7 @@
       });
       zoom = next2;
       document.documentElement.style.setProperty("--sp-preview-zoom", `${zoom}%`);
+      document.documentElement.style.setProperty("--sp-preview-zoom-factor", String(zoom / 100));
       els.zoomValue.value = `${zoom}%`;
       els.zoomOut.disabled = zoom === previewZoom.minimum;
       els.zoomIn.disabled = zoom === previewZoom.maximum;
@@ -20163,6 +20232,40 @@
       cleanFenceMarkers(container);
       attachTaskControls(container);
       attachFenceControls(container);
+      attachMermaidDiagrams(container);
+    }
+    function attachMermaidDiagrams(container) {
+      const dark = mermaidDark(model.previewTheme, document.body.classList);
+      for (const pre of container.querySelectorAll("pre[data-sharp-pen-fence-language='mermaid']")) {
+        const code2 = pre.querySelector("code");
+        const source = code2?.textContent?.trim();
+        if (!source) continue;
+        const show = (diagram) => {
+          if (!pre.isConnected || !code2.isConnected) return;
+          const img = document.createElement("img");
+          img.className = "mermaid-diagram";
+          img.alt = diagram.alt;
+          img.src = diagram.src;
+          if (diagram.width) img.style.setProperty("--mermaid-width", `${diagram.width}px`);
+          code2.hidden = true;
+          pre.classList.add("mermaid");
+          pre.insertBefore(img, code2);
+        };
+        const fail = () => {
+          if (!pre.isConnected || pre.querySelector(".mermaid-error")) return;
+          const error2 = document.createElement("div");
+          error2.className = "mermaid-error";
+          error2.textContent = "Mermaid diagram could not be rendered; showing its source.";
+          pre.insertBefore(error2, code2);
+        };
+        try {
+          const result = renderMermaid(source, dark, () => pre.isConnected);
+          if (result instanceof Promise) result.then(show, fail);
+          else show(result);
+        } catch {
+          fail();
+        }
+      }
     }
     function attachFenceControls(container) {
       const fences = [...container.querySelectorAll("pre[data-sharp-pen-fence-index]")];
@@ -20176,6 +20279,7 @@
         const index = Number(pre.dataset.sharpPenFenceIndex);
         const fence2 = model.fences.find((item) => item.index === index);
         if (!fence2) return;
+        if (fence2.language.toLowerCase() === "mermaid") continue;
         const select = document.createElement("select");
         select.className = "fence-language";
         select.dataset.fenceIndex = String(index);
@@ -20325,9 +20429,11 @@
       } while (!markerStreamMatches(source));
       els.main.className = effectiveView();
       setSplitPosition(splitPosition);
-      renderDocument(els.draft, source, "draft");
-      renderDocument(els.suggested, source, "suggested");
-      renderDocument(els.inline, source, "inline");
+      const visible = effectiveView() === "split" ? ["draft", "suggested"] : ["inline"];
+      for (const side of ["draft", "suggested", "inline"]) {
+        if (visible.includes(side)) renderDocument(els[side], source, side);
+        else els[side].replaceChildren();
+      }
       renderError();
       renderNotice();
       updateControls();
@@ -20427,6 +20533,17 @@
           target.scrollTop = targetTop;
         }
       });
+    }
+    function resetScroll() {
+      clearTimeout(sourceScrollTimer);
+      sourceScrollTimer = 0;
+      lastSourceRatio = -1;
+      pendingScrollTops.clear();
+      for (const pane of [els.draft, els.suggested, els.inline]) {
+        if (!pane.scrollTop) continue;
+        synchronizedScrollTops.set(pane, 0);
+        pane.scrollTop = 0;
+      }
     }
     function scrollPreview(ratio) {
       for (const pane of [els.draft, els.suggested, els.inline]) {
@@ -20591,6 +20708,9 @@
         choices[at < 0 ? 0 : nextIndex].focus();
       }
     });
+    new MutationObserver(() => {
+      if (model?.previewTheme === "auto") render();
+    }).observe(document.body, { attributeFilter: ["class"] });
     window.addEventListener("message", (event) => {
       const message = event.data;
       if (message?.type === "sourceScroll" && Number.isFinite(message.ratio) && message.ratio >= 0 && message.ratio <= 1) {
@@ -20606,6 +20726,11 @@
       const focusId = focusedSuggestionId();
       const taskFocus = focusedTask();
       const fenceFocus = focusedFence();
+      if (model && model.documentId !== message.model.documentId) {
+        lastState = null;
+        cancelRequested = false;
+        resetScroll();
+      }
       model = message.model;
       const completedAnalysis = lastState === "analyzing" && model.state === "ready" && hasSuggestions() && !model.error && !cancelRequested;
       if (completedAnalysis) {

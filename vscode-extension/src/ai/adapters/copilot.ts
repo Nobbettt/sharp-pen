@@ -14,12 +14,6 @@ const excludedTools = [
 export class CopilotAdapter extends BaseAdapter {
   readonly id = "copilot" as const;
 
-  protected versionIssue(version: string | undefined): string | undefined {
-    if (version === "GitHub Copilot CLI 1.0.88.") return undefined;
-    const match = /^GitHub Copilot CLI (\d+\.\d+\.\d+)\.?$/.exec(version ?? "");
-    return `${match ? `GitHub Copilot CLI ${match[1]}` : "The installed GitHub Copilot CLI version"} has not been safety-reviewed. sharp-pen currently supports GitHub Copilot CLI 1.0.88.`;
-  }
-
   protected requiredCapabilities(): readonly string[] {
     return required;
   }

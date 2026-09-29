@@ -1,5 +1,5 @@
-import fromMarkdown = require("mdast-util-from-markdown");
-import { frontMatterRange, markdownTooComplex } from "./validate";
+import { frontMatterRange } from "./validate";
+import { parseMarkdownTree, type MarkdownTree } from "./markdownTree";
 
 export interface MarkdownTask {
   /** Offset of the three-character Markdown marker, e.g. `[x]`. */
@@ -15,8 +15,8 @@ interface Node {
 }
 
 /** Finds only Markdown-it-compatible task markers that belong to parsed list items. */
-export function markdownTasks(source: string): MarkdownTask[] {
-  if (markdownTooComplex(source)) return [];
+export function markdownTasks(source: string, tree: MarkdownTree | undefined = parseMarkdownTree(source)): MarkdownTask[] {
+  if (tree === undefined) return [];
   const tasks: MarkdownTask[] = [];
   const bom = source.charCodeAt(0) === 0xfeff ? 1 : 0;
   const frontMatter = frontMatterRange(source)?.end ?? -1;
@@ -36,7 +36,7 @@ export function markdownTasks(source: string): MarkdownTask[] {
     }
     if (Array.isArray(node.children)) for (const child of node.children) visit(child);
   };
-  try { visit(fromMarkdown(source.slice(bom))); } catch { return []; }
+  visit(tree);
   return tasks.sort((a, b) => a.offset - b.offset);
 }
 

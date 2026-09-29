@@ -11,9 +11,18 @@ import { ReviewController } from "./reviewController";
 import { SettingsPanel } from "./settingsPanel";
 
 const supportedLanguages = new Set(["markdown", "plaintext"]);
+// Editors for these schemes are the user's own documents; output channels, diffs, and SCM inputs are not.
+const followedSchemes = new Set(["file", "untitled"]);
 
-export function activate(context: vscode.ExtensionContext): void {
+/** Returned from activate for the real-CLI integration test, which must pick a client the way the settings panel does. */
+export interface SharpPenApi {
+  setClient(client: AiClient): Promise<void>;
+}
+
+export function activate(context: vscode.ExtensionContext): SharpPenApi {
   const reviews = new Map<string, ReviewController>();
+  // The one review panel belongs to `shown`; every other review is detached, keeping its state until shown again.
+  let shown: ReviewController | undefined;
   const discovery = new ModelDiscovery(undefined, context.extension.packageJSON.version);
   const settings = new SettingsStore(context.globalState);
   const runner = createAnalysisRunner({ settings, select: selectAdapter });
@@ -30,37 +39,75 @@ export function activate(context: vscode.ExtensionContext): void {
     settingsPanel = new SettingsPanel(context.extensionUri, settings, discovery, setTheme, () => { settingsPanel = undefined; });
   };
   const controllerFor = (document: vscode.TextDocument): ReviewController | undefined => reviews.get(document.uri.toString());
-  const open = (document: vscode.TextDocument): ReviewController => {
+  const show = (document: vscode.TextDocument): ReviewController => {
     const existing = controllerFor(document);
-    if (existing) {
-      existing.reveal(vscode.ViewColumn.Beside);
-      return existing;
+    if (existing && existing === shown) return existing;
+    const panel = shown?.detach();
+    if (existing && panel) {
+      existing.attach(panel);
+      return shown = existing;
     }
     const key = document.uri.toString();
     let controller: ReviewController;
     controller = new ReviewController(
       document, context.extensionUri, runner,
-      () => { if (reviews.get(key) === controller) reviews.delete(key); },
+      () => {
+        if (reviews.get(key) === controller) reviews.delete(key);
+        // Closing the panel ends every review, as closing a per-document panel used to.
+        if (shown === controller) {
+          shown = undefined;
+          const hidden = [...reviews.values()];
+          // Hidden reviews close unseen, so say what they discarded.
+          const staged = hidden.reduce((total, review) => total + review.stagedChoiceCount(), 0);
+          hidden.forEach((review) => review.dispose());
+          if (staged > 0) {
+            void vscode.window.showWarningMessage(`sharp-pen review closed; ${staged} staged choice${staged === 1 ? "" : "s"} in other documents ${staged === 1 ? "was" : "were"} discarded.`);
+          }
+        }
+      },
       vscode.ViewColumn.Beside,
       settings.getConfig().previewTheme,
+      panel,
     );
     reviews.set(key, controller);
+    return shown = controller;
+  };
+  // A closed source ends only its own review: another open review, preferably the focused editor's, takes over the panel.
+  const handOff = (from: ReviewController): void => {
+    const active = activeDocumentOrUndefined();
+    const focused = active && controllerFor(active);
+    const next = focused && focused !== from ? focused : [...reviews.values()].find((review) => review !== from);
+    const panel = next && from.detach();
+    if (!next || !panel) return;
+    next.attach(panel);
+    shown = next;
+  };
+  const open = (document: vscode.TextDocument): ReviewController => {
+    const hadPanel = shown !== undefined;
+    const controller = show(document);
+    if (hadPanel) controller.reveal(vscode.ViewColumn.Beside);
     return controller;
   };
   context.subscriptions.push(
     vscode.commands.registerCommand("sharpPen.openReview", (uri?: vscode.Uri) => { const document = activeDocument(uri); if (document) open(document); }),
-    vscode.commands.registerCommand("sharpPen.analyze", (uri?: vscode.Uri) => { const document = activeDocument(uri); if (document) void open(document).analyze(); }),
+    vscode.commands.registerCommand("sharpPen.analyze", async (uri?: vscode.Uri) => {
+      const document = activeDocument(uri);
+      if (!document) return undefined;
+      const controller = open(document);
+      await controller.analyze();
+      return controller.status();
+    }),
     vscode.commands.registerCommand("sharpPen.cancelAnalysis", () => {
       const document = activeDocumentOrUndefined();
-      const controller = (document && controllerFor(document)) ?? [...reviews.values()].find((candidate) => candidate.panel.active);
+      const controller = (document && controllerFor(document)) ?? shown;
       if (controller) controller.cancelAnalysis();
       else void vscode.window.showWarningMessage("No sharp-pen review is active to cancel.");
     }),
     // Scoped to the active sharp-pen review panel by the "activeWebviewPanelId" when clause in package.json,
     // so these never compete with VS Code's own Ctrl/Cmd +/-/0 window-zoom and sidebar-focus keybindings.
-    vscode.commands.registerCommand("sharpPen.zoomIn", () => [...reviews.values()].find((candidate) => candidate.panel.active)?.zoom("in")),
-    vscode.commands.registerCommand("sharpPen.zoomOut", () => [...reviews.values()].find((candidate) => candidate.panel.active)?.zoom("out")),
-    vscode.commands.registerCommand("sharpPen.zoomReset", () => [...reviews.values()].find((candidate) => candidate.panel.active)?.zoom("reset")),
+    vscode.commands.registerCommand("sharpPen.zoomIn", () => shown?.zoom("in")),
+    vscode.commands.registerCommand("sharpPen.zoomOut", () => shown?.zoom("out")),
+    vscode.commands.registerCommand("sharpPen.zoomReset", () => shown?.zoom("reset")),
     vscode.commands.registerCommand("sharpPen.selectModel", () => runModelCommand()),
     vscode.commands.registerCommand("sharpPen.refreshModels", () => runModelCommand(true)),
     vscode.commands.registerCommand("sharpPen.openSettings", openSettings),
@@ -84,8 +131,14 @@ export function activate(context: vscode.ExtensionContext): void {
             `sharp-pen review for "${path.basename(document.fileName)}" closed with its source; ${staged} staged choice${staged === 1 ? "" : "s"} ${staged === 1 ? "was" : "were"} discarded.`,
           );
         }
+        if (found === shown) handOff(found);
         found.dispose();
       }, 0);
+    }),
+    // Like VS Code's own Markdown preview: an open review follows whichever supported document is focused.
+    vscode.window.onDidChangeActiveTextEditor((editor) => {
+      const document = editor?.document;
+      if (shown && document && supportedLanguages.has(document.languageId) && followedSchemes.has(document.uri.scheme)) show(document);
     }),
     vscode.window.onDidChangeTextEditorVisibleRanges((event) => controllerFor(event.textEditor.document)?.onEditorVisibleRanges(event)),
     vscode.workspace.onDidGrantWorkspaceTrust(() => {
@@ -96,6 +149,7 @@ export function activate(context: vscode.ExtensionContext): void {
     { dispose: () => reviews.forEach((controller) => controller.dispose()) },
     { dispose: () => settingsPanel?.dispose() },
   );
+  return { setClient: (client) => settings.setClient(client) };
 }
 
 export function deactivate(): void {}

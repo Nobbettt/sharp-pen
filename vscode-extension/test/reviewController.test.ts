@@ -288,13 +288,13 @@ test("a missing AI client surfaces its authored message with an openSettings act
   }
 });
 
-test("an unsupported Codex CLI version surfaces its authored message with an openSettings action", async () => {
+test("an unusable Codex CLI surfaces its authored message with an openSettings action", async () => {
   const active = controller("Draft", async () => {
-    throw new ProcessRunnerError("launch", "Codex is unavailable: codex-cli 0.200.0 has not been safety-reviewed. sharp-pen currently supports Codex CLI 0.155.1.");
+    throw new ProcessRunnerError("launch", "Codex is unavailable: its installed version cannot disable view_image. Upgrade Codex and try again.");
   });
   try {
     await active.analyze();
-    assert.equal(posted.at(-1).model.error.message, "Codex is unavailable: codex-cli 0.200.0 has not been safety-reviewed. sharp-pen currently supports Codex CLI 0.155.1.");
+    assert.equal(posted.at(-1).model.error.message, "Codex is unavailable: its installed version cannot disable view_image. Upgrade Codex and try again.");
     assert.equal(posted.at(-1).model.error.action, "openSettings");
   } finally {
     active.dispose();
@@ -981,6 +981,12 @@ test("task checkboxes are located via the enclosing list item, not a <label> wra
 test("a collapsed invalidated suggestion renders no pill (see R4-08)", () => {
   const script = readFileSync("media/review.js", "utf8");
   assert.match(script, /if \(s\.status === "invalidated" && s\.start === s\.end\) return document\.createTextNode\(""\);/);
+});
+
+test("review shell allows mermaid's inline diagram styles but keeps scripts nonce-only", () => {
+  const html = reviewWebviewHtml({ asWebviewUri: () => "asset", cspSource: "csp" } as any, "extension" as any);
+  assert.match(html, /default-src 'none'; style-src csp 'unsafe-inline'; script-src 'nonce-[^']+'; img-src csp data:;/);
+  assert.match(html, /<body data-mermaid-src="asset">/);
 });
 
 test("review shell keeps inline review free of a banner", () => {

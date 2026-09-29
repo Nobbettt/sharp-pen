@@ -115,8 +115,9 @@ Source: [Codex non-interactive mode](https://learn.chatgpt.com/docs/non-interact
 
 - Use programmatic prompt mode and suppress non-answer display.
 - Do not grant tools or enable autopilot for proofreading.
-- Pin the reviewed 1.0.88 tool catalog, exclude every tool, and accept only its
-  completed tool-free assistant message from JSONL output.
+- Exclude every tool in the 1.0.88 tool catalog, and accept only its completed
+  tool-free assistant message from JSONL output. Newer versions are accepted
+  while they still support the required flags.
 - Model availability depends on the user's account and policy.
 
 Sources:
@@ -126,7 +127,7 @@ Sources:
 
 ### OpenCode
 
-OpenCode 1.18.32 is supported with a version pin. sharp-pen replaces user and
+OpenCode is supported from 1.18.32, without a version pin. sharp-pen replaces user and
 project configuration with a deny-all custom agent, disables plugins with
 `--pure`, and supplies the prompt through a private temporary file.
 - [OpenCode models](https://opencode.ai/v2/docs/models)
@@ -191,8 +192,9 @@ Sources:
 
 - CLI flags may differ by installed version; adapters must probe capabilities.
 - Provider model lists are dynamic and may depend on account policy.
-- Copilot's JSONL shape and tool catalog may change between versions, so its
-  adapter remains pinned to the reviewed 1.0.88 release.
+- Copilot's JSONL shape and tool catalog may change between versions. Newer
+  versions are not pinned out: a tool added after 1.0.88 is not in the
+  exclusion list until the list is updated.
 - OpenCode documentation spans current and development URLs.
 - No provider documents a complete cross-platform signal or exit-code contract;
   sharp-pen must own cancellation and classify nonzero exit, error events, timeout,

@@ -32,6 +32,10 @@ and edit their source marker immediately, each as its own undoable edit.
 - Work in the document you already know. Suggestions are presented in a
   faithful rendered Markdown preview, while the original VS Code editor stays
   open beside it.
+- One review panel follows the document you're editing: switch to another
+  Markdown or plain-text file and the panel shows its review. Each document
+  keeps its own suggestions and staged choices while another is shown; closing
+  the panel ends them all.
 - Scroll the source editor or preview and the other follows to the same relative
   document position.
 - Zoom the preview with the bottom-right controls, Ctrl/Cmd-wheel or trackpad
@@ -57,6 +61,8 @@ longer matches.
   languages and syntax highlighting for supported languages. Fence metadata is
   preserved; indented code blocks remain plain because Markdown gives them no
   language metadata.
+- `mermaid` fenced code blocks render as diagrams, following the preview theme;
+  a diagram that fails to parse shows its source instead.
 - Light, Dark, and Auto preview themes, including high-contrast support.
 - Responsive review layout: wide panels offer side-by-side panes; narrower
   panels switch to Inline view and move secondary actions into the overflow.
@@ -79,9 +85,9 @@ choices are scoped to their provider, so a model selected for one CLI is never
 sent to another. Use the client default, an available discovered model, or a
 manual model ID.
 
-Codex is currently supported only at safety-reviewed **Codex CLI 0.155.1**.
-GitHub Copilot is currently supported only at safety-reviewed **GitHub Copilot CLI 1.0.88**.
-OpenCode is currently supported only at safety-reviewed **OpenCode 1.18.32**.
+Any installed CLI version is accepted as long as it still supports the flags
+sharp-pen uses to run it without tools. sharp-pen checks this on first use and
+again after the CLI is upgraded, and refuses a version that lacks one.
 
 ## Requirements and limitations
 

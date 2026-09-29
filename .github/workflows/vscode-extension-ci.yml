@@ -30,11 +30,19 @@ jobs:
       - run: npm test
 
   test:
+    name: test (${{ matrix.os }}, VS Code ${{ matrix.vscode }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        # x64 and arm64 for each OS family VS Code ships on.
+        os: [ubuntu-latest, ubuntu-24.04-arm, macos-latest, macos-15-intel, windows-latest, windows-11-arm]
+        vscode: [stable]
+        include:
+          # The engines.vscode minimum; its extension host runs Node 18.
+          - { os: ubuntu-latest, vscode: 1.85.0 }
+          - { os: macos-latest, vscode: 1.85.0 }
+          - { os: windows-latest, vscode: 1.85.0 }
     defaults:
       run:
         working-directory: vscode-extension
@@ -48,3 +56,16 @@ jobs:
       - run: npm ci
       - run: npm test
       - run: npm run package
+        if: matrix.vscode == 'stable'
+      - name: Integration test in VS Code ${{ matrix.vscode }}
+        if: runner.os != 'Linux'
+        env:
+          VSCODE_TEST_VERSION: ${{ matrix.vscode }}
+        run: npm run test:integration
+      - name: Integration test in VS Code ${{ matrix.vscode }} (xvfb)
+        if: runner.os == 'Linux'
+        env:
+          VSCODE_TEST_VERSION: ${{ matrix.vscode }}
+        run: |
+          command -v xvfb-run >/dev/null || { sudo apt-get update && sudo apt-get install -y xvfb; }
+          xvfb-run -a npm run test:integration

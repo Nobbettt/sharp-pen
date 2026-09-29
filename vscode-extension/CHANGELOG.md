@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.2.0
+
+- Render ```` ```mermaid ```` fenced code blocks as diagrams in the preview, following the preview theme. Invalid diagrams fall back to their source.
+- Use a single review panel that follows the active Markdown or plain-text editor, and replace the shown review when opening another. Each document keeps its review state while hidden.
+- Use the `edit-sparkle` icon for the Open Review editor button.
+- New Marketplace icon: the sharp-pen nib on a round white background, readable on dark and light themes.
+- Accept newer Codex, GitHub Copilot and OpenCode CLI versions instead of refusing every version except one. A CLI is refused only when it lacks a flag or feature sharp-pen needs to run it without tools.
+
 ## 0.1.1
 
 - Add split-view and inline-review screenshots to the Marketplace page.

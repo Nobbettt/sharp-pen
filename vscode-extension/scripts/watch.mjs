@@ -1,15 +1,13 @@
 import { spawn } from "node:child_process";
 import { join } from "node:path";
 import { context } from "esbuild";
+import { copyMermaid, extensionBuild, webviewBuilds } from "./build.mjs";
 
-const builds = await Promise.all([
-  ["src/webview/reviewClient.js", "media/review.js"],
-  ["src/webview/settingsClient.js", "media/settings.js"],
-].map(([entryPoint, outfile]) => context({
-  entryPoints: [entryPoint], bundle: true, format: "iife", target: "es2022",
-  banner: { js: `/* Generated from ${entryPoint}; do not edit. */` }, outfile,
-})));
-const tsc = spawn(process.execPath, [join("node_modules", "typescript", "bin", "tsc"), "-p", ".", "--watch"], { stdio: "inherit" });
+// media/mermaid.min.js is gitignored, so a fresh clone has none until this copies it.
+await copyMermaid();
+const builds = await Promise.all([extensionBuild, ...webviewBuilds].map((options) => context(options)));
+// esbuild writes the output; tsc only type-checks.
+const tsc = spawn(process.execPath, [join("node_modules", "typescript", "bin", "tsc"), "-p", ".", "--watch", "--noEmit"], { stdio: "inherit" });
 let stopping = false;
 
 async function stop(code = 0) {

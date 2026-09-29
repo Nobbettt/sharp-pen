@@ -33,14 +33,14 @@ test("standalone model command errors warn generically and sync an open panel", 
 test("openReview and analyze resolve the menu's clicked resource instead of only the active editor", () => {
   const source = readFileSync("src/extension.ts", "utf8");
   assert.match(source, /registerCommand\("sharpPen\.openReview", \(uri\?: vscode\.Uri\) => \{ const document = activeDocument\(uri\); if \(document\) open\(document\); \}\)/);
-  assert.match(source, /registerCommand\("sharpPen\.analyze", \(uri\?: vscode\.Uri\) => \{ const document = activeDocument\(uri\); if \(document\) void open\(document\)\.analyze\(\); \}\)/);
+  assert.match(source, /registerCommand\("sharpPen\.analyze", async \(uri\?: vscode\.Uri\) => \{\s+const document = activeDocument\(uri\);\s+if \(!document\) return undefined;\s+const controller = open\(document\);/);
   assert.match(source, /function resolveDocument\(uri\?: vscode\.Uri\): vscode\.TextDocument \| undefined \{/);
   assert.match(source, /vscode\.workspace\.textDocuments\.find\(\(candidate\) => candidate\.uri\.toString\(\) === uri\.toString\(\)\)/);
 });
 
-test("cancelling analysis falls back to the active review panel and warns when nothing is active", () => {
+test("cancelling analysis falls back to the shown review and warns when nothing is active", () => {
   const source = readFileSync("src/extension.ts", "utf8");
-  assert.match(source, /const controller = \(document && controllerFor\(document\)\) \?\? \[\.\.\.reviews\.values\(\)\]\.find\(\(candidate\) => candidate\.panel\.active\);/);
+  assert.match(source, /const controller = \(document && controllerFor\(document\)\) \?\? shown;/);
   assert.match(source, /showWarningMessage\("No sharp-pen review is active to cancel\."\)/);
 });
 
@@ -54,9 +54,9 @@ test("the model picker opens only after the discovery progress notification clos
 
 test("zoom shortcuts are contributed keybindings scoped to the active review panel, not a global command", () => {
   const source = readFileSync("src/extension.ts", "utf8");
-  assert.match(source, /registerCommand\("sharpPen\.zoomIn", \(\) => \[\.\.\.reviews\.values\(\)\]\.find\(\(candidate\) => candidate\.panel\.active\)\?\.zoom\("in"\)\)/);
-  assert.match(source, /registerCommand\("sharpPen\.zoomOut", \(\) => \[\.\.\.reviews\.values\(\)\]\.find\(\(candidate\) => candidate\.panel\.active\)\?\.zoom\("out"\)\)/);
-  assert.match(source, /registerCommand\("sharpPen\.zoomReset", \(\) => \[\.\.\.reviews\.values\(\)\]\.find\(\(candidate\) => candidate\.panel\.active\)\?\.zoom\("reset"\)\)/);
+  assert.match(source, /registerCommand\("sharpPen\.zoomIn", \(\) => shown\?\.zoom\("in"\)\)/);
+  assert.match(source, /registerCommand\("sharpPen\.zoomOut", \(\) => shown\?\.zoom\("out"\)\)/);
+  assert.match(source, /registerCommand\("sharpPen\.zoomReset", \(\) => shown\?\.zoom\("reset"\)\)/);
 
   const manifest = JSON.parse(readFileSync("package.json", "utf8"));
   const forCommand = (command: string) => manifest.contributes.keybindings.filter((item: { command: string }) => item.command === command);
@@ -94,10 +94,12 @@ test("closing the source document warns about discarded staged choices instead o
   assert.match(source, /showWarningMessage\(\s*`sharp-pen review for "\$\{path\.basename\(document\.fileName\)\}" closed with its source; \$\{staged\} staged choice\$\{staged === 1 \? "" : "s"\} \$\{staged === 1 \? "was" : "were"\} discarded\.`,?\s*\);/);
 });
 
-test("switching a document's language id rebinds its review instead of closing it, but a real close still disposes it (see R5-04)", async () => {
+function activateExtension() {
   const disposable = { dispose() {} };
-  const panels: Array<{ posted: any[]; receive: (message: unknown) => void; disposed: boolean; onDisposeListener?: () => void }> = [];
+  const panels: Array<{ posted: any[]; receive: (message: unknown) => void; disposed: boolean; onDisposeListener?: () => void; options?: any }> = [];
   let closeListener: (document: any) => void = () => {};
+  let activeEditorListener: (editor: any) => void = () => {};
+  let changeListener: (event: any) => void = () => {};
   const commandHandlers: Record<string, (...args: any[]) => unknown> = {};
   let documents: any[] = [];
   const warnings: string[] = [];
@@ -111,7 +113,7 @@ test("switching a document's language id rebinds its review instead of closing i
       get isTrusted() { return true; },
       get textDocuments() { return documents; },
       applyEdit: async () => false,
-      onDidChangeTextDocument: () => disposable,
+      onDidChangeTextDocument: (listener: (event: any) => void) => { changeListener = listener; return disposable; },
       onDidCloseTextDocument: (listener: (document: any) => void) => { closeListener = listener; return disposable; },
       onDidGrantWorkspaceTrust: () => disposable,
     },
@@ -120,8 +122,9 @@ test("switching a document's language id rebinds its review instead of closing i
       activeTextEditor: undefined,
       showWarningMessage: (message: string) => { warnings.push(message); },
       onDidChangeTextEditorVisibleRanges: () => disposable,
-      createWebviewPanel: () => {
-        const panel = { posted: [] as any[], receive: ((_message: unknown) => {}) as (message: unknown) => void, disposed: false, onDisposeListener: undefined as (() => void) | undefined };
+      onDidChangeActiveTextEditor: (listener: (editor: any) => void) => { activeEditorListener = listener; return disposable; },
+      createWebviewPanel: (_viewType: string, _title: string, _column: unknown, options: any) => {
+        const panel = { posted: [] as any[], receive: ((_message: unknown) => {}) as (message: unknown) => void, disposed: false, onDisposeListener: undefined as (() => void) | undefined, options };
         panels.push(panel);
         const webviewObj = {
           html: "",
@@ -142,6 +145,8 @@ test("switching a document's language id rebinds its review instead of closing i
   const Module = require("node:module") as { _load: (...args: any[]) => unknown };
   const load = Module._load;
   Module._load = (request: string, ...args: any[]) => request === "vscode" ? vscodeMock : load(request, ...args);
+  // Each activation gets fresh modules, so none keeps a previous test's vscode mock.
+  for (const key of Object.keys(require.cache)) if (key.includes(`${require("node:path").sep}src${require("node:path").sep}`)) delete require.cache[key];
   const { activate } = require("../src/extension") as typeof import("../src/extension");
   Module._load = load;
 
@@ -152,24 +157,143 @@ test("switching a document's language id rebinds its review instead of closing i
     extensionUri: "ext",
   } as any);
 
+  return {
+    panels, commandHandlers, warnings,
+    close: (document: any) => closeListener(document),
+    change: (document: any) => changeListener({ document, contentChanges: [{ range: {}, rangeOffset: 0, rangeLength: 0, text: "x" }] }),
+    focus: (document: any) => activeEditorListener(document && { document }),
+    setDocuments: (next: any[]) => { documents = next; },
+  };
+}
+
+test("switching a document's language id rebinds its review instead of closing it, but a real close still disposes it (see R5-04)", async () => {
+  const { panels, commandHandlers, warnings, close, setDocuments } = activateExtension();
   const doc: any = { uri: { toString: () => "file:///notes.txt" }, fileName: "/notes.txt", languageId: "plaintext", version: 1, getText: () => "Hello" };
-  documents = [doc];
+  setDocuments([doc]);
   commandHandlers["sharpPen.openReview"](doc.uri);
   assert.equal(panels.length, 1);
 
   // VS Code closes the plain-text document and reopens a new document object at the same URI as Markdown.
   const asMarkdown: any = { ...doc, languageId: "markdown" };
-  documents = [asMarkdown];
-  closeListener(doc);
+  setDocuments([asMarkdown]);
+  close(doc);
   await new Promise((resolve) => setTimeout(resolve, 10));
   assert.equal(panels[0].disposed, false, "a language-id churn must not close the review");
   assert.equal(warnings.length, 0);
 
   // A real close: the document is gone from workspace.textDocuments and nothing reopens it.
-  documents = [];
-  closeListener(asMarkdown);
+  setDocuments([]);
+  close(asMarkdown);
   await new Promise((resolve) => setTimeout(resolve, 10));
   assert.equal(panels[0].disposed, true, "a real close must still dispose the review");
+});
+
+function markdownDocument(name: string, scheme = "file"): any {
+  return { uri: { scheme, toString: () => `${scheme}:///${name}` }, fileName: `/${name}`, languageId: "markdown", version: 1, getText: () => `# ${name}` };
+}
+
+const lastState = (panel: { posted: any[] }) => [...panel.posted].reverse().find((message) => message.type === "state")?.model;
+
+test("one review panel follows the focused Markdown document and routes webview messages to it", async () => {
+  const { panels, commandHandlers, focus, setDocuments } = activateExtension();
+  const [a, b] = [markdownDocument("a.md"), markdownDocument("b.md")];
+  setDocuments([a, b]);
+
+  focus(a); // nothing happens before a review is open
+  assert.equal(panels.length, 0);
+
+  commandHandlers["sharpPen.openReview"](a.uri);
+  assert.equal(panels.length, 1);
+  focus(b);
+  assert.equal(panels.length, 1, "focusing another document reuses the open panel");
+  assert.equal(lastState(panels[0]).documentId, "file:///b.md");
+
+  commandHandlers["sharpPen.openReview"](a.uri);
+  assert.equal(panels.length, 1, "opening another review replaces the shown one");
+  assert.equal(lastState(panels[0]).documentId, "file:///a.md");
+  panels[0].receive({ type: "ready" });
+  assert.equal(lastState(panels[0]).documentId, "file:///a.md", "webview messages reach the shown review");
+});
+
+test("the review panel stays alive while hidden instead of reloading on every tab switch", () => {
+  const { panels, commandHandlers, setDocuments } = activateExtension();
+  const a = markdownDocument("a.md");
+  setDocuments([a]);
+  commandHandlers["sharpPen.openReview"](a.uri);
+  assert.equal(panels[0].options.retainContextWhenHidden, true);
+  assert.equal(panels[0].options.enableCommandUris, false);
+});
+
+test("a burst of keystrokes posts the first state at once, then only the latest once per interval", async () => {
+  const { panels, commandHandlers, setDocuments, change } = activateExtension();
+  const a = markdownDocument("a.md");
+  setDocuments([a]);
+  commandHandlers["sharpPen.openReview"](a.uri);
+  panels[0].receive({ type: "ready" });
+  const states = () => panels[0].posted.filter((message) => message.type === "state");
+  const before = states().length;
+
+  for (let version = 2; version <= 6; version++) { a.version = version; change(a); }
+  assert.equal(states().length, before + 1, "the first edit posts immediately");
+  assert.equal(states().at(-1).model.documentVersion, 2);
+
+  await new Promise((resolve) => setTimeout(resolve, 80));
+  assert.equal(states().length, before + 2, "the rest of the burst posts once");
+  assert.equal(states().at(-1).model.documentVersion, 6, "with the latest version");
+});
+
+test("the review panel ignores output channels, diffs, and unsupported languages", () => {
+  const { panels, commandHandlers, focus, setDocuments } = activateExtension();
+  const a = markdownDocument("a.md");
+  setDocuments([a]);
+  commandHandlers["sharpPen.openReview"](a.uri);
+  panels[0].receive({ type: "ready" });
+  focus(markdownDocument("a.md", "git"));
+  focus({ ...markdownDocument("log"), languageId: "log" });
+  focus(undefined);
+  assert.equal(lastState(panels[0]).documentId, "file:///a.md");
+});
+
+test("closing the review panel ends every document's review", async () => {
+  const { panels, commandHandlers, focus, setDocuments } = activateExtension();
+  const [a, b] = [markdownDocument("a.md"), markdownDocument("b.md")];
+  setDocuments([a, b]);
+  commandHandlers["sharpPen.openReview"](a.uri);
+  focus(b);
+  panels[0].disposed = true; // the user closes the panel
+  panels[0].onDisposeListener?.();
+  focus(a);
+  assert.equal(panels.length, 1, "no review is open to follow the editor any more");
+  commandHandlers["sharpPen.openReview"](a.uri);
+  assert.equal(panels.length, 2, "a new review opens a new panel");
+});
+
+test("closing the shown document's source hands the panel to another open review instead of ending them all", async () => {
+  const { panels, commandHandlers, focus, close, setDocuments } = activateExtension();
+  const [a, b] = [markdownDocument("a.md"), markdownDocument("b.md")];
+  setDocuments([a, b]);
+  commandHandlers["sharpPen.openReview"](a.uri);
+  focus(b);
+  commandHandlers["sharpPen.openReview"](a.uri); // a is shown again; b's review is hidden
+
+  // a closes while focus lands on an editor the panel doesn't follow.
+  setDocuments([b]);
+  close(a);
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.equal(panels[0].disposed, false, "the panel stays open for the remaining review");
+  assert.equal(lastState(panels[0]).documentId, "file:///b.md");
+
+  // With no review left, closing the last source closes the panel.
+  setDocuments([]);
+  close(b);
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.equal(panels[0].disposed, true);
+});
+
+test("closing the review panel warns about staged choices discarded in hidden reviews", () => {
+  const source = readFileSync("src/extension.ts", "utf8");
+  assert.match(source, /const staged = hidden\.reduce\(\(total, review\) => total \+ review\.stagedChoiceCount\(\), 0\);/);
+  assert.match(source, /showWarningMessage\(`sharp-pen review closed; \$\{staged\} staged choice/);
 });
 
 test("manifest has no native settings contribution and retains Open Settings", () => {

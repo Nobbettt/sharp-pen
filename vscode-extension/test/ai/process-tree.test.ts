@@ -23,7 +23,8 @@ test("Windows taskkill targets the CLI process tree", () => {
   assert.deepEqual(taskkillArgs(1234), ["/PID", "1234", "/T", "/F"]);
 });
 
-test("cancellation settles and kills a CLI process tree that retains stdio", { concurrency: false, skip: process.platform === "win32" }, async () => {
+// Runs everywhere: POSIX signals the process group, Windows runs taskkill /T on the cmd.exe shim.
+test("cancellation settles and kills a CLI process tree that retains stdio", { concurrency: false }, async () => {
   const pidFile = join(tmpdir(), `sharp-pen-tree-${process.pid}-${Date.now()}`);
   const grandchild = `const { appendFileSync } = require('node:fs'); appendFileSync(${JSON.stringify(pidFile)}, process.pid + '\\n'); setInterval(() => {}, 1_000);`;
   const child = `const { spawn } = require('node:child_process'); const { appendFileSync } = require('node:fs'); appendFileSync(${JSON.stringify(pidFile)}, process.pid + '\\n'); spawn(process.execPath, ['-e', ${JSON.stringify(grandchild)}], { stdio: 'inherit' }); setInterval(() => {}, 1_000);`;

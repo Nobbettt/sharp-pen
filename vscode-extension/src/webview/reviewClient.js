@@ -4,8 +4,29 @@ import { reviewCountStatus } from "./reviewStatus";
 import { fenceLanguageOptions } from "./fenceLanguages";
 import { cleanFenceIdentityText } from "./fenceIdentity";
 import { normalizePreviewZoom, previewZoom } from "./zoom";
+import { createMermaidRenderer, mermaidDark } from "./mermaid";
 
 const markdown = createMarkdownRenderer();
+// Captured while this script runs synchronously; mermaid is only loaded once a diagram needs it.
+const scriptNonce = document.currentScript?.nonce || "";
+let mermaidLoad = null;
+const renderMermaid = createMermaidRenderer(() => mermaidLoad ??= new Promise((resolve, reject) => {
+  const script = document.createElement("script");
+  script.nonce = scriptNonce;
+  script.src = document.body.dataset.mermaidSrc || "";
+  script.onload = () => window.mermaid ? resolve(window.mermaid) : reject(new Error("Mermaid did not load"));
+  script.onerror = () => { mermaidLoad = null; reject(new Error("Mermaid could not be loaded")); };
+  document.head.append(script);
+}), () => {
+  let host = document.querySelector(".mermaid-render-host");
+  if (!host) {
+    host = document.createElement("div");
+    host.className = "mermaid-render-host";
+    host.setAttribute("aria-hidden", "true");
+    document.body.append(host);
+  }
+  return host;
+});
 
 (() => {
   "use strict";
@@ -78,6 +99,7 @@ const markdown = createMarkdownRenderer();
     });
     zoom = next;
     document.documentElement.style.setProperty("--sp-preview-zoom", `${zoom}%`);
+    document.documentElement.style.setProperty("--sp-preview-zoom-factor", String(zoom / 100));
     els.zoomValue.value = `${zoom}%`;
     els.zoomOut.disabled = zoom === previewZoom.minimum;
     els.zoomIn.disabled = zoom === previewZoom.maximum;
@@ -285,6 +307,37 @@ const markdown = createMarkdownRenderer();
     cleanFenceMarkers(container);
     attachTaskControls(container);
     attachFenceControls(container);
+    attachMermaidDiagrams(container);
+  }
+  function attachMermaidDiagrams(container) {
+    const dark = mermaidDark(model.previewTheme, document.body.classList);
+    for (const pre of container.querySelectorAll("pre[data-sharp-pen-fence-language='mermaid']")) {
+      const code = pre.querySelector("code");
+      const source = code?.textContent?.trim();
+      if (!source) continue;
+      const show = (diagram) => {
+        if (!pre.isConnected || !code.isConnected) return;
+        const img = document.createElement("img");
+        img.className = "mermaid-diagram";
+        img.alt = diagram.alt;
+        img.src = diagram.src;
+        if (diagram.width) img.style.setProperty("--mermaid-width", `${diagram.width}px`);
+        code.hidden = true;
+        pre.classList.add("mermaid");
+        pre.insertBefore(img, code);
+      };
+      const fail = () => {
+        if (!pre.isConnected || pre.querySelector(".mermaid-error")) return;
+        const error = document.createElement("div");
+        error.className = "mermaid-error";
+        error.textContent = "Mermaid diagram could not be rendered; showing its source.";
+        pre.insertBefore(error, code);
+      };
+      try {
+        const result = renderMermaid(source, dark, () => pre.isConnected);
+        if (result instanceof Promise) result.then(show, fail); else show(result);
+      } catch { fail(); }
+    }
   }
   function attachFenceControls(container) {
     const fences = [...container.querySelectorAll("pre[data-sharp-pen-fence-index]")];
@@ -299,6 +352,8 @@ const markdown = createMarkdownRenderer();
       const index = Number(pre.dataset.sharpPenFenceIndex);
       const fence = model.fences.find((item) => item.index === index);
       if (!fence) return;
+      // Mermaid fences render as diagrams; changing their language would only turn them back into code.
+      if (fence.language.toLowerCase() === "mermaid") continue;
       const select = document.createElement("select");
       select.className = "fence-language";
       select.dataset.fenceIndex = String(index);
@@ -435,9 +490,12 @@ const markdown = createMarkdownRenderer();
     do { setMarkerNamespace(); source = displaySource(level); } while (!markerStreamMatches(source));
     els.main.className = effectiveView();
     setSplitPosition(splitPosition);
-    renderDocument(els.draft, source, "draft");
-    renderDocument(els.suggested, source, "suggested");
-    renderDocument(els.inline, source, "inline");
+    // Only the visible panes are built; hidden ones are emptied (not left stale) and rebuilt when the view switches.
+    const visible = effectiveView() === "split" ? ["draft", "suggested"] : ["inline"];
+    for (const side of ["draft", "suggested", "inline"]) {
+      if (visible.includes(side)) renderDocument(els[side], source, side);
+      else els[side].replaceChildren();
+    }
     renderError(); renderNotice(); updateControls(); persist();
   }
   function focusedSuggestionId() {
@@ -531,6 +589,22 @@ const markdown = createMarkdownRenderer();
         target.scrollTop = targetTop;
       }
     });
+  }
+  /**
+   * A new document must not inherit the previous one's scroll position: the browser would clamp it to the
+   * shorter content, and that clamp would read as the user scrolling and jump the new document's editor.
+   * The controller then sends the new editor's position, which scrolls the panes to it.
+   */
+  function resetScroll() {
+    clearTimeout(sourceScrollTimer);
+    sourceScrollTimer = 0;
+    lastSourceRatio = -1;
+    pendingScrollTops.clear();
+    for (const pane of [els.draft, els.suggested, els.inline]) {
+      if (!pane.scrollTop) continue;
+      synchronizedScrollTops.set(pane, 0);
+      pane.scrollTop = 0;
+    }
   }
   function scrollPreview(ratio) {
     for (const pane of [els.draft, els.suggested, els.inline]) {
@@ -671,6 +745,8 @@ const markdown = createMarkdownRenderer();
       choices[at < 0 ? 0 : nextIndex].focus();
     }
   });
+  // Diagrams are images with the theme baked in, so an Auto preview re-renders when VS Code's theme class changes.
+  new MutationObserver(() => { if (model?.previewTheme === "auto") render(); }).observe(document.body, { attributeFilter: ["class"] });
   window.addEventListener("message", (event) => {
     const message = event.data;
     if (message?.type === "sourceScroll" && Number.isFinite(message.ratio) && message.ratio >= 0 && message.ratio <= 1) {
@@ -686,6 +762,8 @@ const markdown = createMarkdownRenderer();
     const focusId = focusedSuggestionId();
     const taskFocus = focusedTask();
     const fenceFocus = focusedFence();
+    // Another document's state isn't a transition of this one (e.g. its "ready" must not read as analysis finishing).
+    if (model && model.documentId !== message.model.documentId) { lastState = null; cancelRequested = false; resetScroll(); }
     model = message.model;
     const completedAnalysis = lastState === "analyzing" && model.state === "ready" && hasSuggestions() && !model.error && !cancelRequested;
     if (completedAnalysis) { view = "inline"; splitPosition = 50; persist(); }

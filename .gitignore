@@ -13,3 +13,9 @@ marketing/
 
 # personal planning notes, never published
 private-docs/
+
+# VS Code downloaded by the extension integration tests
+.vscode-test/
+
+# local agent notes for the extension, never committed
+vscode-extension/AGENTS.md

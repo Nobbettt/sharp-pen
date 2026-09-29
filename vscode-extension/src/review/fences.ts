@@ -1,5 +1,4 @@
-import fromMarkdown = require("mdast-util-from-markdown");
-import { markdownTooComplex } from "./validate";
+import { parseMarkdownTree, type MarkdownTree } from "./markdownTree";
 
 export interface CodeFence {
   index: number;
@@ -17,8 +16,8 @@ interface Node {
 }
 
 /** Collects only source-backed backtick/tilde fences; mdast's indented code has no opening fence here. */
-export function markdownFences(source: string): CodeFence[] {
-  if (markdownTooComplex(source)) return [];
+export function markdownFences(source: string, tree: MarkdownTree | undefined = parseMarkdownTree(source)): CodeFence[] {
+  if (tree === undefined) return [];
   const bom = source.charCodeAt(0) === 0xfeff ? 1 : 0;
   const found: Omit<CodeFence, "index">[] = [];
   const visit = (value: unknown): void => {
@@ -41,6 +40,6 @@ export function markdownFences(source: string): CodeFence[] {
     }
     if (Array.isArray(node.children)) for (const child of node.children) visit(child);
   };
-  try { visit(fromMarkdown(source.slice(bom))); } catch { return []; }
+  visit(tree);
   return found.sort((a, b) => a.languageStart - b.languageStart).map((fence, index) => ({ index, ...fence }));
 }

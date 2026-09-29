@@ -45,8 +45,9 @@ else if (args.includes('--help')) {
 
 export async function writeCliFixtureExecutable(dir: string, name: string, body: string): Promise<void> {
   if (process.platform === "win32") {
+    // PATH's node, not process.execPath: inside the VS Code extension host that is the editor binary, not Node.
     await writeFile(join(dir, `${name}.js`), body);
-    await writeFile(join(dir, `${name}.cmd`), `@echo off\r\n"${process.execPath}" "%~dp0${name}.js" %*\r\n`);
+    await writeFile(join(dir, `${name}.cmd`), `@echo off\r\nnode "%~dp0${name}.js" %*\r\n`);
     return;
   }
   const executable = join(dir, name);

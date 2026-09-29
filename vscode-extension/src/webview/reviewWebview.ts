@@ -16,6 +16,8 @@ export interface WebviewSuggestion {
 }
 
 export interface ReviewWebviewModel {
+  /** The source document's URI: the one review panel switches documents as the active editor changes. */
+  documentId: string;
   title: string;
   format: "markdown" | "plaintext";
   currentSource: string;
@@ -41,6 +43,7 @@ export interface ReviewWebviewModel {
 export function reviewWebviewHtml(webview: vscode.Webview, extensionUri: vscode.Uri): string {
   const style = webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, "media", "review.css"));
   const script = webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, "media", "review.js"));
+  const mermaid = webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, "media", "mermaid.min.js"));
   const nonce = randomUUID().replace(/-/g, "");
 
   return `<!doctype html>
@@ -48,11 +51,11 @@ export function reviewWebviewHtml(webview: vscode.Webview, extensionUri: vscode.
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource}; script-src 'nonce-${nonce}'; img-src ${webview.cspSource} data:;">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}'; img-src ${webview.cspSource} data:;">
   <link rel="stylesheet" href="${style}">
   <title>sharp-pen</title>
 </head>
-<body>
+<body data-mermaid-src="${mermaid}">
   <header class="toolbar" aria-label="sharp-pen review controls">
     <button id="analyze" class="primary" type="button">Analyze</button>
     <div id="level-toggle" class="segmented" aria-label="Review level">

@@ -1,4 +1,4 @@
-import { BaseAdapter } from "./shared";
+import { BaseAdapter, probeTimeoutMs } from "./shared";
 
 const required = ["--sandbox", "--skip-git-repo-check", "--ephemeral", "--ignore-user-config", "--ignore-rules", "--strict-config", "--disable", "--config", "--json"] as const;
 // These are the current, non-removed switches which expose local, browser, or MCP tools.
@@ -11,14 +11,6 @@ const disabledFeatures = [
 
 export class CodexAdapter extends BaseAdapter {
   readonly id = "codex" as const;
-
-  protected versionIssue(version: string | undefined): string | undefined {
-    if (version === "codex-cli 0.155.1") return undefined;
-    // Never interpolate raw CLI output into a message shown in the UI; only a validated version token.
-    const match = /^codex-cli (\d+\.\d+\.\d+)$/.exec(version ?? "");
-    const label = match ? `codex-cli ${match[1]}` : "an unrecognised version";
-    return `${label} has not been safety-reviewed. sharp-pen currently supports Codex CLI 0.155.1.`;
-  }
 
   protected helpArgs(): string[] {
     return ["exec", "--help"];
@@ -38,7 +30,7 @@ export class CodexAdapter extends BaseAdapter {
   }
 
   protected async safetyIssue(_capabilities: ReadonlySet<string>, signal?: AbortSignal): Promise<string | undefined> {
-    const features = await this.runner({ executable: this.id, args: ["features", "list"], signal, timeoutMs: 5_000, stdoutLimit: 64_000, stderrLimit: 8_192 });
+    const features = await this.runner({ executable: this.id, args: ["features", "list"], signal, timeoutMs: probeTimeoutMs, stdoutLimit: 64_000, stderrLimit: 8_192 });
     const available = new Set(features.stdout.split(/\r?\n/).flatMap((line) => {
       const match = /^(\S+)\s+(?!removed\b).*\s+(?:true|false)\s*$/.exec(line);
       return match ? [match[1]] : [];

@@ -4,6 +4,9 @@ import type { CliAdapter, CliId, ProbeResult } from "../types";
 
 type Runner = typeof runProcess;
 
+/** Per-command limit for --version/--help probes; Copilot's cold start alone takes 2-3 s on a loaded machine. */
+export const probeTimeoutMs = 15_000;
+
 /** How long a just-completed probe's --version check remains fresh enough to skip the revalidation. */
 const probeFreshnessMs = 2_000;
 
@@ -18,16 +21,15 @@ export abstract class BaseAdapter implements CliAdapter {
   async probe(signal?: AbortSignal): Promise<ProbeResult> {
     if (this.probeResult) return this.probeResult;
     try {
-      const version = await this.runner({ executable: this.id, args: ["--version"], signal, timeoutMs: 5_000, stdoutLimit: 8_192, stderrLimit: 8_192 });
+      const version = await this.runner({ executable: this.id, args: ["--version"], signal, timeoutMs: probeTimeoutMs, stdoutLimit: 8_192, stderrLimit: 8_192 });
+      // Any version is accepted; the flag and safety checks below decide whether it can run locked down.
       const installedVersion = firstLine(version.stdout || version.stderr);
-      const versionIssue = this.versionIssue(installedVersion);
-      if (versionIssue) return this.unavailable(versionIssue, new Set());
       const args = this.helpArgs();
-      const help = await this.runner({ executable: this.id, args, signal, timeoutMs: 5_000, stdoutLimit: 64_000, stderrLimit: 64_000 });
+      const help = await this.runner({ executable: this.id, args, signal, timeoutMs: probeTimeoutMs, stdoutLimit: 64_000, stderrLimit: 64_000 });
       let capabilities = flags(help.stdout + "\n" + help.stderr);
       let missing = this.requiredCapabilities().filter((flag) => !supports(capabilities, flag));
       if (missing.length) {
-        const retry = await this.runner({ executable: this.id, args, signal, timeoutMs: 5_000, stdoutLimit: 64_000, stderrLimit: 64_000 });
+        const retry = await this.runner({ executable: this.id, args, signal, timeoutMs: probeTimeoutMs, stdoutLimit: 64_000, stderrLimit: 64_000 });
         capabilities = new Set([...capabilities, ...flags(retry.stdout + "\n" + retry.stderr)]);
         missing = this.requiredCapabilities().filter((flag) => !supports(capabilities, flag));
       }
@@ -68,7 +70,7 @@ export abstract class BaseAdapter implements CliAdapter {
       if (freshProbe) return;
     }
     try {
-      const version = await this.runner({ executable: this.id, args: ["--version"], signal, timeoutMs: 5_000, stdoutLimit: 8_192, stderrLimit: 8_192 });
+      const version = await this.runner({ executable: this.id, args: ["--version"], signal, timeoutMs: probeTimeoutMs, stdoutLimit: 8_192, stderrLimit: 8_192 });
       if (firstLine(version.stdout || version.stderr) === this.probeResult.version) return;
     } catch (error) {
       if (error instanceof ProcessRunnerError && error.kind === "aborted") throw error;
@@ -80,10 +82,6 @@ export abstract class BaseAdapter implements CliAdapter {
 
   protected requiredCapabilities(): readonly string[] {
     return [];
-  }
-
-  protected versionIssue(_version: string | undefined): string | undefined {
-    return undefined;
   }
 
   /** Runs only local argument/config validation; providers can reject unsafe CLI versions here. */
