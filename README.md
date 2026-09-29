@@ -23,7 +23,8 @@ without changing your tone or reformulating what you wanted to say. Hand it a
 draft and it hands back a review page: your text on the left, suggestions on
 the right, every difference clickable. Accept a change with one click; when
 there is more than one reasonable phrasing, pick from a dropdown. Nothing is
-applied until you say so.
+applied until you say so. It works in any language the model you choose
+supports, and detects the language from the text on its own.
 
 https://github.com/user-attachments/assets/7fab5412-2428-4cd1-8e86-4208745bcfe7
 
