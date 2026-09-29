@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { buildAnalysisPrompt, exampleResponse } from "../../src/ai/prompt";
+import { buildAnalysisPrompt, exampleResponse, exampleText } from "../../src/ai/prompt";
 import { agentResponseSchema } from "../../src/ai/schema";
 import { REVIEW_LIMITS, validateAgentResponse } from "../../src/review/validate";
 
@@ -56,11 +56,32 @@ test("the response shape is described once, by the schema, not again in prose", 
 
 test("the language is always detected from the text, never supplied, and never translated", () => {
   const prompt = buildAnalysisPrompt(input);
-  assert.match(prompt, /Detect the document's language yourself from the text/);
-  assert.match(prompt, /never translate it/);
-  assert.match(prompt, /Keep its spelling variant/);
-  assert.match(prompt, /Leave passages in another language unchanged/);
+  assert.match(prompt, /Detect the language yourself from the text/);
+  assert.match(prompt, /never translate/);
+  assert.match(prompt, /Keep each language's spelling variant/);
   assert.doesNotMatch(prompt, /Document language \(data\)/);
+});
+
+test("a mixed-language document is reviewed passage by passage, not only in its first language", () => {
+  const prompt = buildAnalysisPrompt(input);
+  // A blanket "leave passages in another language unchanged" made Codex skip a document's whole second language.
+  assert.match(prompt, /A document may mix languages: review each passage by the rules of its own language/);
+  assert.match(prompt, /Leave only short insertions from another language unchanged, such as quotations, loanwords, and names/);
+  assert.doesNotMatch(prompt, /Leave passages in another language unchanged/);
+  assert.match(prompt, /Apply both levels to every language in the document/);
+});
+
+test("each note is tied to its own from text's language, and the worked example shows it in two languages", () => {
+  const prompt = buildAnalysisPrompt(input);
+  assert.match(prompt, /note is one short line naming the fault, written in the same language as its from text/);
+  assert.match(prompt, new RegExp(JSON.stringify(exampleText).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+  for (const suggestion of exampleResponse.level1) assert.ok(exampleText.includes(suggestion.from), suggestion.from);
+});
+
+test("Level 1 errors are always listed at Level 1, and short or common words get a neighbouring word", () => {
+  const prompt = buildAnalysisPrompt(input);
+  assert.match(prompt, /Report every Level 1 error at Level 1, even when a Level 2 suggestion rewrites the same sentence/);
+  assert.match(prompt, /for a very short or common word, include a neighbouring word so the anchor is unambiguous/);
 });
 
 test("quoted text, names, code-like text and deliberate fragments are protected, and fewer confident suggestions are preferred", () => {
