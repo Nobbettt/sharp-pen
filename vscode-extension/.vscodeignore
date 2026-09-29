@@ -7,10 +7,9 @@
 src/**
 scripts/**
 test/**
-out/src/**
-out/test/**
-out/webview/markdownRenderer.js
-out/webview/codeHighlight.js
+# Everything the extension runs is bundled into out/extension.js (scripts/build.mjs).
+out/**
+!out/extension.js
 tsconfig.json
 tsconfig.test.json
 package-lock.json
