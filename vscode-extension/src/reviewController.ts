@@ -6,6 +6,7 @@ import { parseReviewIntent, type ReviewIntent } from "./review/intents";
 import { reconcileSourceChanges } from "./review/reconcile";
 import { markdownTasks, matchesMarkdownTask } from "./review/tasks";
 import { markdownFences } from "./review/fences";
+import { parseMarkdownTree } from "./review/markdownTree";
 import { installedLanguageIds } from "./review/languages";
 import type { Decision, Decisions, Level, Review, ResolvedReview, Suggestion } from "./review/types";
 import { REVIEW_LIMITS, createReview, frontMatterRange, markdownTooComplex, validateAndResolve } from "./review/validate";
@@ -509,6 +510,8 @@ export class ReviewController implements vscode.Disposable {
     const source = this.review?.currentSource ?? this.document.getText();
     const format = this.document.languageId === "markdown" ? "markdown" : "plaintext";
     const oversized = tooLargeOrComplex(source, format);
+    const markdown = !oversized && this.document.languageId === "markdown";
+    const tree = markdown ? parseMarkdownTree(source) : undefined;
     const suggestion = (item: Suggestion) => ({
       ...item,
       decision: this.decisions[item.id]?.option ?? null,
@@ -525,8 +528,8 @@ export class ReviewController implements vscode.Disposable {
       canAnalyze: !oversized && vscode.workspace.isTrusted && this.runner !== undefined && !this.sourceEditing && !this.applying && !this.analysis,
       hasReview: this.review !== undefined,
       canToggleTasks: !oversized && vscode.workspace.isTrusted && this.document.languageId === "markdown" && !this.sourceEditing && !this.applying && !this.analysis,
-      tasks: oversized || this.document.languageId !== "markdown" ? [] : markdownTasks(source),
-      fences: oversized || this.document.languageId !== "markdown" ? [] : markdownFences(source),
+      tasks: markdown ? markdownTasks(source, tree) : [],
+      fences: markdown ? markdownFences(source, tree) : [],
       // The webview drops this slice from every rendered pane; markdown-it has no front-matter rule, so
       // rendering it raw turns "---" into a thematic break and the YAML into a bogus heading (see R5-05).
       frontMatterEnd: oversized || this.document.languageId !== "markdown" ? 0 : (frontMatterRange(source)?.end ?? 0),
