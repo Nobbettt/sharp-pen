@@ -36,5 +36,4 @@ npm run test:ai -- --cli codex --platform windows-11-arm
 ## Still manual
 
 - [ ] Remote hosts: Remote-SSH and WSL (the extension runs on the remote side, so the CLI must be signed in there)
-- [ ] VSCodium or Cursor, installed from Open VSX
 - [ ] Mermaid diagrams render in the preview, and applying a suggestion edits the document

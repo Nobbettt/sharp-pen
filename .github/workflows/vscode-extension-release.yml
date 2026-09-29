@@ -75,20 +75,14 @@ jobs:
           echo "VERSION=$version" >> "$GITHUB_ENV"
           echo "VSIX=sharp-pen-$version.vsix" >> "$GITHUB_ENV"
 
-      # Installs the lockfile-pinned @vscode/vsce and ovsx so `npx` below never fetches
-      # an unpinned publisher package in a job holding release credentials.
+      # Installs the lockfile-pinned @vscode/vsce so `npx` below never fetches an
+      # unpinned publisher package in a job holding release credentials.
       - run: npm ci --ignore-scripts
 
       - name: Publish to VS Code Marketplace
         env:
           VSCE_PAT: ${{ secrets.VSCE_PAT }}
         run: npx vsce publish --packagePath "$VSIX" --skip-duplicate
-
-      # For VSCodium, Cursor, Windsurf and other editors that read Open VSX instead of the Marketplace.
-      - name: Publish to Open VSX
-        env:
-          OVSX_PAT: ${{ secrets.OVSX_PAT }}
-        run: npx ovsx publish --packagePath "$VSIX" --skip-duplicate
 
       - name: Create GitHub release
         env:
