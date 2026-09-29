@@ -334,7 +334,7 @@ const renderMermaid = createMermaidRenderer(() => mermaidLoad ??= new Promise((r
         pre.insertBefore(error, code);
       };
       try {
-        const result = renderMermaid(source, dark);
+        const result = renderMermaid(source, dark, () => pre.isConnected);
         if (result instanceof Promise) result.then(show, fail); else show(result);
       } catch { fail(); }
     }
@@ -590,6 +590,22 @@ const renderMermaid = createMermaidRenderer(() => mermaidLoad ??= new Promise((r
       }
     });
   }
+  /**
+   * A new document must not inherit the previous one's scroll position: the browser would clamp it to the
+   * shorter content, and that clamp would read as the user scrolling and jump the new document's editor.
+   * The controller then sends the new editor's position, which scrolls the panes to it.
+   */
+  function resetScroll() {
+    clearTimeout(sourceScrollTimer);
+    sourceScrollTimer = 0;
+    lastSourceRatio = -1;
+    pendingScrollTops.clear();
+    for (const pane of [els.draft, els.suggested, els.inline]) {
+      if (!pane.scrollTop) continue;
+      synchronizedScrollTops.set(pane, 0);
+      pane.scrollTop = 0;
+    }
+  }
   function scrollPreview(ratio) {
     for (const pane of [els.draft, els.suggested, els.inline]) {
       setSynchronizedScroll(pane, Math.max(0, pane.scrollHeight - pane.clientHeight) * ratio);
@@ -747,7 +763,7 @@ const renderMermaid = createMermaidRenderer(() => mermaidLoad ??= new Promise((r
     const taskFocus = focusedTask();
     const fenceFocus = focusedFence();
     // Another document's state isn't a transition of this one (e.g. its "ready" must not read as analysis finishing).
-    if (model && model.documentId !== message.model.documentId) { lastState = null; cancelRequested = false; }
+    if (model && model.documentId !== message.model.documentId) { lastState = null; cancelRequested = false; resetScroll(); }
     model = message.model;
     const completedAnalysis = lastState === "analyzing" && model.state === "ready" && hasSuggestions() && !model.error && !cancelRequested;
     if (completedAnalysis) { view = "inline"; splitPosition = 50; persist(); }

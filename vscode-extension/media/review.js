@@ -19863,14 +19863,22 @@
   function createMermaidRenderer(load, host) {
     const cache = /* @__PURE__ */ new Map();
     let queue = Promise.resolve();
+    const waiting = /* @__PURE__ */ new Map();
     let count = 0;
-    return (source, dark) => {
+    return (source, dark, wanted = () => true) => {
       const key = `${dark ? "dark" : "default"}
 ${source}`;
       const cached = cache.get(key);
-      if (cached) return cached;
+      if (cached) {
+        waiting.get(key)?.push(wanted);
+        return cached;
+      }
       if (cache.size >= CACHE_LIMIT) cache.clear();
+      const wants = [wanted];
+      waiting.set(key, wants);
       const pending = queue.then(async () => {
+        if (waiting.get(key) === wants) waiting.delete(key);
+        if (!wants.some((wantedBy) => wantedBy())) throw new Error("Mermaid render superseded");
         const mermaid = await load();
         mermaid.initialize({ startOnLoad: false, securityLevel: "strict", suppressErrorRendering: true, theme: dark ? "dark" : "default" });
         return toDiagram((await mermaid.render(`sharp-pen-mermaid-${++count}`, source, host?.())).svg);
@@ -20251,7 +20259,7 @@ ${source}`;
           pre.insertBefore(error2, code2);
         };
         try {
-          const result = renderMermaid(source, dark);
+          const result = renderMermaid(source, dark, () => pre.isConnected);
           if (result instanceof Promise) result.then(show, fail);
           else show(result);
         } catch {
@@ -20526,6 +20534,17 @@ ${source}`;
         }
       });
     }
+    function resetScroll() {
+      clearTimeout(sourceScrollTimer);
+      sourceScrollTimer = 0;
+      lastSourceRatio = -1;
+      pendingScrollTops.clear();
+      for (const pane of [els.draft, els.suggested, els.inline]) {
+        if (!pane.scrollTop) continue;
+        synchronizedScrollTops.set(pane, 0);
+        pane.scrollTop = 0;
+      }
+    }
     function scrollPreview(ratio) {
       for (const pane of [els.draft, els.suggested, els.inline]) {
         setSynchronizedScroll(pane, Math.max(0, pane.scrollHeight - pane.clientHeight) * ratio);
@@ -20710,6 +20729,7 @@ ${source}`;
       if (model && model.documentId !== message.model.documentId) {
         lastState = null;
         cancelRequested = false;
+        resetScroll();
       }
       model = message.model;
       const completedAnalysis = lastState === "analyzing" && model.state === "ready" && hasSuggestions() && !model.error && !cancelRequested;

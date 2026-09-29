@@ -61,3 +61,28 @@ test("mermaid follows the preview theme, and the VS Code theme in auto mode", ()
   assert.equal(mermaidDark("auto", classes("vscode-high-contrast")), true);
   assert.equal(mermaidDark("auto", classes("vscode-light")), false);
 });
+
+test("queued renders that no pane still shows are skipped, so typing in a fence builds no backlog", async () => {
+  const { api, calls } = fakeMermaid();
+  const render = createMermaidRenderer(async () => api);
+  // Each keystroke's source replaces the last one on the page before its queued render starts.
+  const stale = [render("graph TD; A", false, () => false), render("graph TD; A-", false, () => false)];
+  const latest = render("graph TD; A-->B", false, () => true);
+  await Promise.allSettled(stale);
+  await latest;
+  assert.deepEqual(calls.map((call) => call.source), ["graph TD; A-->B"]);
+  await assert.rejects(Promise.resolve(stale[0]), /superseded/);
+  // A skipped source renders normally once a pane shows it again.
+  await render("graph TD; A", false, () => true);
+  assert.equal(calls.length, 2);
+});
+
+test("a shared queued render still runs while any pane showing it wants it", async () => {
+  const { api, calls } = fakeMermaid();
+  const render = createMermaidRenderer(async () => api);
+  const gone = render("graph TD; A-->B", false, () => false);
+  const shown = render("graph TD; A-->B", false, () => true);
+  assert.equal(gone, shown);
+  await shown;
+  assert.equal(calls.length, 1);
+});

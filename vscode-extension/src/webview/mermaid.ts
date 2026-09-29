@@ -28,21 +28,31 @@ function toDiagram(svg: string): MermaidDiagram {
   };
 }
 
-/** Returns a cached diagram synchronously, otherwise a promise; renders run one at a time because mermaid's theme is global. */
 /**
+ * Returns a cached diagram synchronously, otherwise a promise; renders run one at a time because mermaid's theme is global.
  * `host` is where mermaid lays diagrams out to measure them; without it mermaid appends a full-size
  * element to <body>, which shifts the whole review layout until each render finishes.
+ * `wanted` says whether a caller still shows the diagram. A queued render nobody still wants is skipped,
+ * so typing in a fence (a new source every update) doesn't build a backlog of stale renders.
  */
 export function createMermaidRenderer(load: () => Promise<MermaidApi>, host?: () => Element) {
   const cache = new Map<string, MermaidDiagram | Promise<MermaidDiagram>>();
   let queue: Promise<unknown> = Promise.resolve();
+  const waiting = new Map<string, Array<() => boolean>>();
   let count = 0;
-  return (source: string, dark: boolean): MermaidDiagram | Promise<MermaidDiagram> => {
+  return (source: string, dark: boolean, wanted: () => boolean = () => true): MermaidDiagram | Promise<MermaidDiagram> => {
     const key = `${dark ? "dark" : "default"}\n${source}`;
     const cached = cache.get(key);
-    if (cached) return cached;
+    if (cached) {
+      waiting.get(key)?.push(wanted);
+      return cached;
+    }
     if (cache.size >= CACHE_LIMIT) cache.clear();
+    const wants = [wanted];
+    waiting.set(key, wants);
     const pending = queue.then(async () => {
+      if (waiting.get(key) === wants) waiting.delete(key);
+      if (!wants.some((wantedBy) => wantedBy())) throw new Error("Mermaid render superseded");
       const mermaid = await load();
       mermaid.initialize({ startOnLoad: false, securityLevel: "strict", suppressErrorRendering: true, theme: dark ? "dark" : "default" });
       return toDiagram((await mermaid.render(`sharp-pen-mermaid-${++count}`, source, host?.())).svg);
