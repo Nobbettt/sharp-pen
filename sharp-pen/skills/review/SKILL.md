@@ -44,10 +44,11 @@ resolved path whenever you write a file with anything other than bash.
 normalised quotes, no reflowed lines. Every anchor matches it byte for byte.
 
 **2. Identify the language, read `$SP/reference/analysis-guide.md`, write
-`$RUN/changes.json`.** Work out the draft's language and spelling variant from
-the text itself; never ask the author and never translate. Review in that
-language, write the notes in it, and set `language` to its BCP 47 tag (`sv`,
-`en-GB`, `pt-BR`):
+`$RUN/changes.json`.** Work out the draft's language — or languages — and spelling
+variant from the text itself; never ask the author and never translate. Review
+each passage by the rules of its own language, write each note in the language
+of the text it is about, and set `language` to the main language's BCP 47 tag
+(`sv`, `en-GB`, `pt-BR`):
 
 ```json
 {
@@ -94,15 +95,15 @@ Iterating once or twice is normal and not worth reporting.
   foreground process, give the author the command. Give them the file path too:
   it sits outside their project and opens fine by double-clicking.
 
-**5. Reply briefly:** counts per level and the language you reviewed in (so the
-author can correct it), then anything you were unsure about —
+**5. Reply briefly:** counts per level and the language(s) you reviewed in (so
+the author can correct them), then anything you were unsure about —
 guesses at intent, placeholders left in the text, typos inside quoted material
 or code they may want verbatim. Do not restate corrections; the page shows them.
 
 ## Non-negotiables
 
 - The left pane is the author's text exactly as given.
-- Review in the draft's own language and spelling variant. Never translate.
+- Review each passage in its own language and spelling variant. Never translate.
 - Suggest form, not substance. Never change what a sentence claims, remove their
   hedges, or make casual prose corporate.
 - One entry = one decision. Fixes that must be accepted together are one entry.

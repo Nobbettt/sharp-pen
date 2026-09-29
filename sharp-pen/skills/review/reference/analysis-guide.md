@@ -12,16 +12,18 @@ from the text itself. It is never given, and the author is never asked.
 - Review in that language, by its own rules: Swedish *särskrivning* and
   *de/dem*, German noun capitalisation, the space French puts before `; : ! ?`.
   The English examples below show the kind of fault, not the rule to apply.
+- A draft may mix languages. Review every passage by the rules of its own
+  language — a Spanish section after a Hungarian one gets a full review too.
 - Keep the spelling variant — US or UK English (color/colour, -ize/-ise),
   Brazilian or European Portuguese. Never move a draft to another variant; flag
   only a variant used inconsistently within the draft, at level 1.
-- Never translate. Passages in another language — quotations, loanwords, a
-  sentence in a second language — are left alone.
-- Write every `note` in the draft's main language, and set `language` in
-  `changes.json` to its BCP 47 tag (`sv`, `en-GB`, `pt-BR`). The page marks the
-  text with it, so screen readers and spellcheck read it correctly.
-- If you cannot tell which language most of the prose is in, say so in chat
-  instead of guessing.
+- Never translate. Leave only short insertions from another language alone:
+  quotations, loanwords, names.
+- Write each `note` in the language of the text it is about.
+- Set `language` in `changes.json` to the BCP 47 tag (`sv`, `en-GB`, `pt-BR`) of
+  the language most of the prose is in — the first one, if two share it evenly.
+  The page marks the text with it, so screen readers and spellcheck read it
+  correctly.
 
 ## Level 1 — spelling and grammar
 
