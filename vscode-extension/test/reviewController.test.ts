@@ -288,13 +288,13 @@ test("a missing AI client surfaces its authored message with an openSettings act
   }
 });
 
-test("an unsupported Codex CLI version surfaces its authored message with an openSettings action", async () => {
+test("an unusable Codex CLI surfaces its authored message with an openSettings action", async () => {
   const active = controller("Draft", async () => {
-    throw new ProcessRunnerError("launch", "Codex is unavailable: codex-cli 0.200.0 has not been safety-reviewed. sharp-pen currently supports Codex CLI 0.155.1.");
+    throw new ProcessRunnerError("launch", "Codex is unavailable: its installed version cannot disable view_image. Upgrade Codex and try again.");
   });
   try {
     await active.analyze();
-    assert.equal(posted.at(-1).model.error.message, "Codex is unavailable: codex-cli 0.200.0 has not been safety-reviewed. sharp-pen currently supports Codex CLI 0.155.1.");
+    assert.equal(posted.at(-1).model.error.message, "Codex is unavailable: its installed version cannot disable view_image. Upgrade Codex and try again.");
     assert.equal(posted.at(-1).model.error.action, "openSettings");
   } finally {
     active.dispose();

@@ -12,12 +12,6 @@ export class OpenCodeAdapter extends BaseAdapter {
     return ["run", "--help"];
   }
 
-  protected versionIssue(version: string | undefined): string | undefined {
-    if (version === "1.18.32") return undefined;
-    const match = /^(\d+\.\d+\.\d+)$/.exec(version ?? "");
-    return `${match ? `OpenCode ${match[1]}` : "The installed OpenCode version"} has not been safety-reviewed. sharp-pen currently supports OpenCode 1.18.32.`;
-  }
-
   protected requiredCapabilities(): readonly string[] {
     return required;
   }

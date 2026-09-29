@@ -74,26 +74,11 @@ test("a missing safety capability makes a provider unavailable", { concurrency: 
   }
 });
 
-test("Codex rejects versions whose tool surface has not been safety-reviewed", { concurrency: false }, async () => {
+test("Codex accepts a newer version whose flags and no-tool features still pass the probe", { concurrency: false }, async () => {
   const setup = await fixture();
   try {
-    await setup.set({ codexVersion: "codex-cli 0.156.0" });
-    const probe = await new CodexAdapter().probe();
-    assert.equal(probe.available, false);
-    assert.match(probe.message ?? "", /has not been safety-reviewed/);
-  } finally {
-    await setup.restore();
-  }
-});
-
-test("Codex never echoes raw CLI output for an unrecognised version", { concurrency: false }, async () => {
-  const setup = await fixture();
-  try {
-    await setup.set({ codexVersion: "npm warn config deprecated also-flag set true" });
-    const probe = await new CodexAdapter().probe();
-    assert.equal(probe.available, false);
-    assert.match(probe.message ?? "", /an unrecognised version has not been safety-reviewed/);
-    assert.doesNotMatch(probe.message ?? "", /npm warn/);
+    await setup.set({ codexVersion: "codex-cli 0.158.0" });
+    assert.equal((await new CodexAdapter().probe()).available, true);
   } finally {
     await setup.restore();
   }
@@ -111,14 +96,12 @@ test("Codex rejects a CLI missing a required no-tool feature", { concurrency: fa
   }
 });
 
-test("OpenCode pins the safety-reviewed CLI version", { concurrency: false }, async () => {
+test("OpenCode and Copilot accept newer versions that still pass the probe", { concurrency: false }, async () => {
   const setup = await fixture();
   try {
+    await setup.set({ opencodeVersion: "1.18.33", copilotVersion: "GitHub Copilot CLI 1.0.89." });
     assert.equal((await new OpenCodeAdapter().probe()).available, true);
-    await setup.set({ opencodeVersion: "1.18.33" });
-    const probe = await new OpenCodeAdapter().probe();
-    assert.equal(probe.available, false);
-    assert.match(probe.message ?? "", /has not been safety-reviewed/);
+    assert.equal((await new CopilotAdapter().probe()).available, true);
   } finally {
     await setup.restore();
   }

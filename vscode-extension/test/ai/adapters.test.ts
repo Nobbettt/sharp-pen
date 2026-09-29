@@ -7,7 +7,7 @@ import { CodexAdapter } from "../../src/ai/adapters/codex";
 import { CopilotAdapter } from "../../src/ai/adapters/copilot";
 import { OpenCodeAdapter, extractOpenCodeFinalText } from "../../src/ai/adapters/opencode";
 import { ProcessRunnerError } from "../../src/ai/processRunner";
-import { extractCopilotFinalText, extractFinalText } from "../../src/ai/adapters/shared";
+import { extractCopilotFinalText, extractFinalText, probeTimeoutMs } from "../../src/ai/adapters/shared";
 import { cliFixture } from "./cliFixture";
 import { copilot185Output } from "./copilot-1.0.85.fixture";
 
@@ -98,9 +98,10 @@ test("a stale probe no longer skips the version recheck", { concurrency: false }
     await setup.set({ output: "__capture__" });
     assert.equal((await adapter.probe()).available, true);
     (adapter as any).probedAt -= 2_001;
-    await setup.set({ codexVersion: "codex-cli 0.160.0" });
+    // An upgrade that dropped a no-tool feature must be caught by the fresh probe, not the cached one.
+    await setup.set({ codexVersion: "codex-cli 0.160.0", codexFeatures: codexFeatures.replace("view_image stable false", "") });
     await assert.rejects(adapter.analyze("outside-git source"), (error: unknown) =>
-      error instanceof ProcessRunnerError && error.kind === "launch" && /has not been safety-reviewed/.test(error.message));
+      error instanceof ProcessRunnerError && error.kind === "launch" && /view_image/.test(error.message));
   } finally {
     await setup.restore();
   }
@@ -110,7 +111,7 @@ test("Claude retries one truncated help response and merges its capabilities", a
   const helpRequests: string[][] = [];
   const adapter = new ClaudeAdapter(async ({ args, timeoutMs, stdoutLimit, stderrLimit }) => {
     if (args.includes("--version")) return { stdout: "fixture 1.0\n", stderr: "", exitCode: 0 };
-    assert.equal(timeoutMs, 5_000);
+    assert.equal(timeoutMs, probeTimeoutMs);
     assert.equal(stdoutLimit, 64_000);
     assert.equal(stderrLimit, 64_000);
     helpRequests.push([...args]);
@@ -281,16 +282,17 @@ test("a client that exits successfully without a final payload is rejected", { c
   }
 });
 
-test("Codex re-checks its CLI version before every analysis and revokes a cached probe after an unreviewed upgrade", { concurrency: false }, async () => {
+test("Codex re-checks its CLI version before every analysis and re-probes after an upgrade", { concurrency: false }, async () => {
   const setup = await fixtures();
   try {
     const adapter = new CodexAdapter();
     await setup.set({ output: "__capture__" });
     await adapter.analyze("outside-git source");
     await adapter.analyze("outside-git source");
-    await setup.set({ codexVersion: "codex-cli 0.160.0" });
+    // An upgrade that dropped a no-tool feature must be caught by the fresh probe, not the cached one.
+    await setup.set({ codexVersion: "codex-cli 0.160.0", codexFeatures: codexFeatures.replace("view_image stable false", "") });
     await assert.rejects(adapter.analyze("outside-git source"), (error: unknown) =>
-      error instanceof ProcessRunnerError && error.kind === "launch" && /has not been safety-reviewed/.test(error.message));
+      error instanceof ProcessRunnerError && error.kind === "launch" && /view_image/.test(error.message));
   } finally {
     await setup.restore();
   }

@@ -85,9 +85,9 @@ choices are scoped to their provider, so a model selected for one CLI is never
 sent to another. Use the client default, an available discovered model, or a
 manual model ID.
 
-Codex is currently supported only at safety-reviewed **Codex CLI 0.155.1**.
-GitHub Copilot is currently supported only at safety-reviewed **GitHub Copilot CLI 1.0.88**.
-OpenCode is currently supported only at safety-reviewed **OpenCode 1.18.32**.
+Any installed CLI version is accepted as long as it still supports the flags
+sharp-pen uses to run it without tools. sharp-pen checks this on first use and
+again after the CLI is upgraded, and refuses a version that lacks one.
 
 ## Requirements and limitations
 
