@@ -16,9 +16,11 @@ export const webviewBuilds = [
   banner: { js: `/* Generated from ${entryPoint}; do not edit. */` }, outfile,
 }));
 
+/** Mermaid ships its own self-contained bundle; the webview loads it lazily for ```mermaid fences. */
+export const copyMermaid = () => copyFile("node_modules/mermaid/dist/mermaid.min.js", "media/mermaid.min.js");
+
 // pathToFileURL, not `file://${argv[1]}`: on Windows argv[1] is `D:\...`, which never matched and skipped the build.
 if (import.meta.url === pathToFileURL(process.argv[1]).href) {
-  // Mermaid ships its own self-contained bundle; the webview loads it lazily for ```mermaid fences.
-  await copyFile("node_modules/mermaid/dist/mermaid.min.js", "media/mermaid.min.js");
+  await copyMermaid();
   await Promise.all([extensionBuild, ...webviewBuilds].map((options) => build(options)));
 }

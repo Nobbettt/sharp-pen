@@ -1,8 +1,10 @@
 import { spawn } from "node:child_process";
 import { join } from "node:path";
 import { context } from "esbuild";
-import { extensionBuild, webviewBuilds } from "./build.mjs";
+import { copyMermaid, extensionBuild, webviewBuilds } from "./build.mjs";
 
+// media/mermaid.min.js is gitignored, so a fresh clone has none until this copies it.
+await copyMermaid();
 const builds = await Promise.all([extensionBuild, ...webviewBuilds].map((options) => context(options)));
 // esbuild writes the output; tsc only type-checks.
 const tsc = spawn(process.execPath, [join("node_modules", "typescript", "bin", "tsc"), "-p", ".", "--watch", "--noEmit"], { stdio: "inherit" });
