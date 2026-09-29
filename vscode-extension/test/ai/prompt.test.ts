@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { buildAnalysisPrompt } from "../../src/ai/prompt";
+import { buildAnalysisPrompt, exampleResponse } from "../../src/ai/prompt";
 import { agentResponseSchema } from "../../src/ai/schema";
 import { REVIEW_LIMITS, validateAgentResponse } from "../../src/review/validate";
 
@@ -35,11 +35,48 @@ test("schema uses the validator's response shape and bounds", () => {
   assert.doesNotThrow(() => validateAgentResponse({
     title: "Draft", level1: [{ from: "are", options: ["is"], note: "Agreement" }], level2: [],
   }));
-  assert.match(buildAnalysisPrompt(input), /Response JSON schema: \{.*"additionalProperties":false/);
+  assert.match(buildAnalysisPrompt(input), /matching this JSON schema, and no Markdown, code fence, prose, or other text: \{.*"additionalProperties":false/);
+});
+
+test("Level 2 is described as sentence structure and clarity, not the translated term 'sentence construction'", () => {
+  const prompt = buildAnalysisPrompt(input);
+  assert.match(prompt, /Level 2 contains only sentence-structure and clarity problems/);
+  assert.doesNotMatch(prompt, /sentence construction/i);
 });
 
 test("prompt construction is stable", () => {
+  assert.equal(buildAnalysisPrompt(input), buildAnalysisPrompt(input));
+});
+
+test("the response shape is described once, by the schema, not again in prose", () => {
   const prompt = buildAnalysisPrompt(input);
-  assert.equal(prompt, buildAnalysisPrompt(input));
-  assert.match(prompt, /only title, level1, and level2/);
+  assert.equal(prompt.split('"additionalProperties":false,"required":["title","level1","level2"]').length - 1, 1);
+  assert.doesNotMatch(prompt, /arrays of \{ from, occurrence\?, options, note \}/);
+});
+
+test("the language is always detected from the text, never supplied, and never translated", () => {
+  const prompt = buildAnalysisPrompt(input);
+  assert.match(prompt, /Detect the document's language yourself from the text/);
+  assert.match(prompt, /never translate it/);
+  assert.match(prompt, /Keep its spelling variant/);
+  assert.match(prompt, /Leave passages in another language unchanged/);
+  assert.doesNotMatch(prompt, /Document language \(data\)/);
+});
+
+test("quoted text, names, code-like text and deliberate fragments are protected, and fewer confident suggestions are preferred", () => {
+  const prompt = buildAnalysisPrompt(input);
+  assert.match(prompt, /Never change quoted text, product names, technical terms, text that looks like code or a file name/);
+  assert.match(prompt, /sentences that read well get nothing/);
+});
+
+test("the worked example is a valid response and sits before the document", () => {
+  assert.doesNotThrow(() => validateAgentResponse(exampleResponse, "Example"));
+  const prompt = buildAnalysisPrompt(input);
+  assert.ok(prompt.indexOf(JSON.stringify(exampleResponse)) < prompt.indexOf("<<<SHARP_PEN_SOURCE_BEGIN>>>"));
+});
+
+test("the output rule is repeated after the document", () => {
+  const prompt = buildAnalysisPrompt(input);
+  const end = prompt.indexOf("<<<SHARP_PEN_SOURCE_END>>>");
+  assert.match(prompt.slice(end), /Reminder: review only the text between the delimiters above.*return only the JSON object\.$/);
 });
