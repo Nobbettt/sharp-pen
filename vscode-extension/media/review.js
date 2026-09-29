@@ -20421,9 +20421,11 @@ ${source}`;
       } while (!markerStreamMatches(source));
       els.main.className = effectiveView();
       setSplitPosition(splitPosition);
-      renderDocument(els.draft, source, "draft");
-      renderDocument(els.suggested, source, "suggested");
-      renderDocument(els.inline, source, "inline");
+      const visible = effectiveView() === "split" ? ["draft", "suggested"] : ["inline"];
+      for (const side of ["draft", "suggested", "inline"]) {
+        if (visible.includes(side)) renderDocument(els[side], source, side);
+        else els[side].replaceChildren();
+      }
       renderError();
       renderNotice();
       updateControls();

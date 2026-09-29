@@ -490,9 +490,12 @@ const renderMermaid = createMermaidRenderer(() => mermaidLoad ??= new Promise((r
     do { setMarkerNamespace(); source = displaySource(level); } while (!markerStreamMatches(source));
     els.main.className = effectiveView();
     setSplitPosition(splitPosition);
-    renderDocument(els.draft, source, "draft");
-    renderDocument(els.suggested, source, "suggested");
-    renderDocument(els.inline, source, "inline");
+    // Only the visible panes are built; hidden ones are emptied (not left stale) and rebuilt when the view switches.
+    const visible = effectiveView() === "split" ? ["draft", "suggested"] : ["inline"];
+    for (const side of ["draft", "suggested", "inline"]) {
+      if (visible.includes(side)) renderDocument(els[side], source, side);
+      else els[side].replaceChildren();
+    }
     renderError(); renderNotice(); updateControls(); persist();
   }
   function focusedSuggestionId() {
