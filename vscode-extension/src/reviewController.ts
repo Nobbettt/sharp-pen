@@ -85,6 +85,9 @@ export class ReviewController implements vscode.Disposable {
         enableScripts: true,
         enableCommandUris: false,
         localResourceRoots: [vscode.Uri.joinPath(extensionUri, "media")],
+        // There is only ever one review panel, so keeping it alive while hidden costs one webview; otherwise
+        // every tab switch reloads it and re-renders every Mermaid diagram.
+        retainContextWhenHidden: true,
       });
       created.webview.html = reviewWebviewHtml(created.webview, extensionUri);
       this.bind(created);

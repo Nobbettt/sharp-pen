@@ -96,7 +96,7 @@ test("closing the source document warns about discarded staged choices instead o
 
 function activateExtension() {
   const disposable = { dispose() {} };
-  const panels: Array<{ posted: any[]; receive: (message: unknown) => void; disposed: boolean; onDisposeListener?: () => void }> = [];
+  const panels: Array<{ posted: any[]; receive: (message: unknown) => void; disposed: boolean; onDisposeListener?: () => void; options?: any }> = [];
   let closeListener: (document: any) => void = () => {};
   let activeEditorListener: (editor: any) => void = () => {};
   const commandHandlers: Record<string, (...args: any[]) => unknown> = {};
@@ -122,8 +122,8 @@ function activateExtension() {
       showWarningMessage: (message: string) => { warnings.push(message); },
       onDidChangeTextEditorVisibleRanges: () => disposable,
       onDidChangeActiveTextEditor: (listener: (editor: any) => void) => { activeEditorListener = listener; return disposable; },
-      createWebviewPanel: () => {
-        const panel = { posted: [] as any[], receive: ((_message: unknown) => {}) as (message: unknown) => void, disposed: false, onDisposeListener: undefined as (() => void) | undefined };
+      createWebviewPanel: (_viewType: string, _title: string, _column: unknown, options: any) => {
+        const panel = { posted: [] as any[], receive: ((_message: unknown) => {}) as (message: unknown) => void, disposed: false, onDisposeListener: undefined as (() => void) | undefined, options };
         panels.push(panel);
         const webviewObj = {
           html: "",
@@ -211,6 +211,15 @@ test("one review panel follows the focused Markdown document and routes webview 
   assert.equal(lastState(panels[0]).documentId, "file:///a.md");
   panels[0].receive({ type: "ready" });
   assert.equal(lastState(panels[0]).documentId, "file:///a.md", "webview messages reach the shown review");
+});
+
+test("the review panel stays alive while hidden instead of reloading on every tab switch", () => {
+  const { panels, commandHandlers, setDocuments } = activateExtension();
+  const a = markdownDocument("a.md");
+  setDocuments([a]);
+  commandHandlers["sharpPen.openReview"](a.uri);
+  assert.equal(panels[0].options.retainContextWhenHidden, true);
+  assert.equal(panels[0].options.enableCommandUris, false);
 });
 
 test("the review panel ignores output channels, diffs, and unsupported languages", () => {
