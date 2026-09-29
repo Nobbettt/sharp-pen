@@ -33,6 +33,31 @@ npm run test:ai -- --cli codex --platform windows-11-arm
 - CI tests the pushed branch, not local changes. `vscode-extension-real-ai.yml` must exist on the default branch before it can be started.
 - If the Claude access token expires within 30 minutes, the script warns. Use Claude Code once to refresh it.
 
+## Languages: `npm run eval:languages`
+
+Runs the real, signed-in CLIs on this machine against mixed-language documents (`test/eval/languageCases.ts`), several runs each, through sharp-pen's own prompt, adapters and validation. It makes real model calls and is never part of `npm test` or CI.
+
+| Document | What it stresses |
+|---|---|
+| `hu-es`, `es-hu` | Two unrelated languages; the same content in both orders, so order effects show |
+| `sv-en-hu` | Three languages, including UK English whose spellings must stay UK |
+| `sv-no-da` | Three closely related languages with the same kinds of error in near-identical sentences |
+
+Each document has an answer key of planted errors, plus text that must not change: quotations, names, UK spellings, correct control sentences. Per tool and document, over all runs:
+
+- **Recall** (must reach 90% on average): the share of planted errors caught. A Level 1 error counts only when a Level 1 suggestion on it has an option whose result matches the expected fix. A Level 2 problem counts when a Level 2 suggestion covers the sentence.
+- **Keep violations** (must be 0): a suggestion changes text that must survive.
+- **Level 1 rewrites** (must be 0): a Level 1 option less than 50% similar to its original, i.e. a rewrite rather than a correction.
+- **Language mismatches** (must be 0): a note, or a replacement, confidently detected as a different language than the passage it belongs to, e.g. Norwegian "fixed" into Swedish, or a Hungarian note on a Spanish error.
+- **Reported only:** notes whose language the simple marker-based detector can't tell, suggestions sharp-pen couldn't place, and suggestions outside the answer key (which can be valid).
+
+```
+npm run eval:languages                              # all CLIs, all documents, 3 runs
+npm run eval:languages -- --cli codex --case sv-no-da --runs 1
+```
+
+The full per-run results are written to `out/eval/`.
+
 ## Still manual
 
 - [ ] Remote hosts: Remote-SSH and WSL (the extension runs on the remote side, so the CLI must be signed in there)
