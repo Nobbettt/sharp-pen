@@ -99,6 +99,7 @@ Iterating once or twice is normal and not worth reporting.
 the author can correct them), then anything you were unsure about —
 guesses at intent, placeholders left in the text, typos inside quoted material
 or code they may want verbatim. Do not restate corrections; the page shows them.
+Reply in the language the author is writing to you in, not the draft's language.
 
 ## Non-negotiables
 
