@@ -130,7 +130,7 @@ If you have downloaded a release VSIX, use **Extensions: Install from VSIX...**
 in VS Code, or run:
 
 ```sh
-code --install-extension sharp-pen-0.1.0.vsix
+code --install-extension sharp-pen-0.3.0.vsix
 ```
 
 Release builds are available from [GitHub Releases](https://github.com/Nobbettt/sharp-pen/releases).
