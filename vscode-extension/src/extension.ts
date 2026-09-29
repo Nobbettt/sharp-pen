@@ -67,6 +67,16 @@ export function activate(context: vscode.ExtensionContext): void {
     reviews.set(key, controller);
     return shown = controller;
   };
+  // A closed source ends only its own review: another open review, preferably the focused editor's, takes over the panel.
+  const handOff = (from: ReviewController): void => {
+    const active = activeDocumentOrUndefined();
+    const focused = active && controllerFor(active);
+    const next = focused && focused !== from ? focused : [...reviews.values()].find((review) => review !== from);
+    const panel = next && from.detach();
+    if (!next || !panel) return;
+    next.attach(panel);
+    shown = next;
+  };
   const open = (document: vscode.TextDocument): ReviewController => {
     const hadPanel = shown !== undefined;
     const controller = show(document);
@@ -116,6 +126,7 @@ export function activate(context: vscode.ExtensionContext): void {
             `sharp-pen review for "${path.basename(document.fileName)}" closed with its source; ${staged} staged choice${staged === 1 ? "" : "s"} ${staged === 1 ? "was" : "were"} discarded.`,
           );
         }
+        if (found === shown) handOff(found);
         found.dispose();
       }, 0);
     }),

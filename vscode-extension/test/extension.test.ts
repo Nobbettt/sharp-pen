@@ -239,6 +239,28 @@ test("closing the review panel ends every document's review", async () => {
   assert.equal(panels.length, 2, "a new review opens a new panel");
 });
 
+test("closing the shown document's source hands the panel to another open review instead of ending them all", async () => {
+  const { panels, commandHandlers, focus, close, setDocuments } = activateExtension();
+  const [a, b] = [markdownDocument("a.md"), markdownDocument("b.md")];
+  setDocuments([a, b]);
+  commandHandlers["sharpPen.openReview"](a.uri);
+  focus(b);
+  commandHandlers["sharpPen.openReview"](a.uri); // a is shown again; b's review is hidden
+
+  // a closes while focus lands on an editor the panel doesn't follow.
+  setDocuments([b]);
+  close(a);
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.equal(panels[0].disposed, false, "the panel stays open for the remaining review");
+  assert.equal(lastState(panels[0]).documentId, "file:///b.md");
+
+  // With no review left, closing the last source closes the panel.
+  setDocuments([]);
+  close(b);
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.equal(panels[0].disposed, true);
+});
+
 test("closing the review panel warns about staged choices discarded in hidden reviews", () => {
   const source = readFileSync("src/extension.ts", "utf8");
   assert.match(source, /const staged = hidden\.reduce\(\(total, review\) => total \+ review\.stagedChoiceCount\(\), 0\);/);
