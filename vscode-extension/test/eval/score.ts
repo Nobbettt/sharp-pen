@@ -31,6 +31,13 @@ export interface RunScore {
 /** Level 1 options at least this similar to their `from` count as edits; below it, a rewrite or translation. */
 export const LEVEL_ONE_MIN_SIMILARITY = 0.5;
 
+/** Shorter anchors aren't checked: a correct fix of a short word ("was" → "were") changes most of it. */
+export const LEVEL_ONE_MIN_CHECKED_LENGTH = 6;
+
+/** Whether a Level 1 option is a rewrite or translation rather than a correction of its `from`. */
+export const isLevelOneRewrite = (from: string, option: string): boolean =>
+  Math.max(from.length, option.length) >= LEVEL_ONE_MIN_CHECKED_LENGTH && similarity(from, option) < LEVEL_ONE_MIN_SIMILARITY;
+
 export const SECTION_SEPARATOR = "\n\n";
 
 /** Joins the sections and locates every planted issue and kept text; each must occur once in its section. */
@@ -111,7 +118,7 @@ export function scoreRun(document: CaseDocument, review: ResolvedReview): RunSco
         score.keepViolations.push(`${describe(suggestion)} changes ${JSON.stringify(kept.value)}`);
       }
     }
-    if (suggestion.level === 1 && similarity(suggestion.from, suggestion.options[0]) < LEVEL_ONE_MIN_SIMILARITY) {
+    if (suggestion.level === 1 && isLevelOneRewrite(suggestion.from, suggestion.options[0])) {
       score.levelOneRewrites.push(describe(suggestion));
     }
     const passage = passageOf(suggestion);

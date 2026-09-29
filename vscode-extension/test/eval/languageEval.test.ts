@@ -4,7 +4,7 @@ import test from "node:test";
 import type { ResolvedReview, Suggestion } from "../../src/review/types";
 import { detectLanguage } from "./detectLanguage";
 import { languageCases } from "./languageCases";
-import { buildDocument, scoreRun, similarity } from "./score";
+import { buildDocument, isLevelOneRewrite, scoreRun, similarity } from "./score";
 
 const svNoDa = buildDocument(languageCases.find((testCase) => testCase.id === "sv-no-da")!);
 
@@ -42,6 +42,9 @@ test("similarity separates small Level 1 edits from rewrites and translations", 
   assert.ok(similarity("Their going", "They're going") > 0.7);
   assert.ok(similarity("gärna tackar", "gärna tacka") > 0.9);
   assert.ok(similarity("Porque", "Como") < 0.5);
+  // A correct fix of a short word changes most of it, so short anchors aren't judged by similarity.
+  assert.equal(isLevelOneRewrite("was", "were"), false);
+  assert.equal(isLevelOneRewrite("Porque", "Como"), true);
   // Closely related languages look like a small edit; the language check has to catch those instead.
   assert.ok(similarity("bruker grensesnittet", "användargränssnittet") >= 0.5);
 });
