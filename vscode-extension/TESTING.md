@@ -10,22 +10,31 @@
 
 Run the smoke test locally with `npm run test:integration`. Set `VSCODE_TEST_VERSION=1.85.0` for the minimum version. On Linux without a display, prefix the command with `xvfb-run -a`.
 
-## Manual, before each release
+## Real AI CLIs: `npm run test:ai`
 
-CI cannot sign in to real AI CLIs, and it does not run on remote hosts. Run this list with the release `.vsix` (`code --install-extension sharp-pen-X.Y.Z.vsix`).
+One command tests sharp-pen against the real, signed-in CLIs, using this Mac's own logins (never API keys):
 
-Environments:
+| Target | Runs on | Login |
+|---|---|---|
+| `macos-local` | This Mac, directly | The CLIs' own Keychain and file logins |
+| `linux-docker` | Docker on this Mac (`test/real-ai/Dockerfile`, latest CLIs) | Copies of the Codex and OpenCode login files; Claude and Copilot tokens from the Keychain |
+| `ubuntu-latest`, `ubuntu-24.04-arm`, `macos-latest`, `macos-15-intel`, `windows-latest`, `windows-11-arm` | GitHub Actions (`vscode-extension-real-ai.yml`) | The same logins, stored as `real-ai` environment secrets for the run and deleted afterwards |
 
-- [ ] macOS (Apple Silicon)
-- [ ] Windows 11, e.g. a Windows 11 ARM VM in UTM or Parallels. Install the CLIs through npm so they are `.cmd` shims.
-- [ ] Linux, through a Dev Container, WSL or Remote-SSH. This also covers the remote case: the extension runs on the remote host, so the CLI must be installed and signed in *there*.
+For each CLI it checks the probe, model discovery, one real analysis of `test/fixtures/real-ai.md` (at least one suggestion placed), and that cancelling a second analysis settles within 5 s. It prints a table of passed, failed and skipped results, and exits non-zero on any failure.
+
+```
+npm run test:ai                          # everything
+npm run test:ai -- --local               # this Mac and Docker only
+npm run test:ai -- --cli codex --platform windows-11-arm
+```
+
+- Every run makes real model calls on your subscriptions.
+- Codex and OpenCode can refresh their copied logins in Docker or CI, which may sign this Mac out of that CLI.
+- CI tests the pushed branch, not local changes. `vscode-extension-real-ai.yml` must exist on the default branch before it can be started.
+- If the Claude access token expires within 30 minutes, the script warns. Use Claude Code once to refresh it.
+
+## Still manual
+
+- [ ] Remote hosts: Remote-SSH and WSL (the extension runs on the remote side, so the CLI must be signed in there)
 - [ ] VSCodium or Cursor, installed from Open VSX
-
-In each environment, for every CLI you have (Claude Code, Codex, GitHub Copilot, OpenCode):
-
-- [ ] Open `test/fixtures/demo.md`, run **sharp-pen: Open Review**, then **Analyze**. Suggestions appear.
-- [ ] Mermaid diagrams render in the preview.
-- [ ] Start an analysis, then run **sharp-pen: Cancel Analysis**. The progress notification closes, and no CLI process is left running (check Activity Monitor, Task Manager or `ps`).
-- [ ] **Select Model...** lists models, and the chosen model is used for the next analysis.
-- [ ] Apply a suggestion. The source document changes.
-- [ ] Uninstall the CLI, or remove it from PATH, and analyze. The error names the missing client and offers settings.
+- [ ] Mermaid diagrams render in the preview, and applying a suggestion edits the document

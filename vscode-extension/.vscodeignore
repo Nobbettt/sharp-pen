@@ -25,3 +25,4 @@ node_modules/**/README*
 node_modules/**/CHANGELOG*
 node_modules/**/HISTORY*
 TESTING.md
+AGENTS.md

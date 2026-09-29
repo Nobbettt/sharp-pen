@@ -1,0 +1,103 @@
+name: VS Code extension real AI CLIs
+# test-ai.mjs finds its own run by this tag.
+run-name: Real AI CLIs ${{ inputs.tag }}
+
+# Started only by `npm run test:ai` (vscode-extension/scripts/test-ai.mjs). That script uploads the
+# developer's own CLI logins as `real-ai` environment secrets for one run and deletes them afterwards.
+# Never runs on push or pull requests, so forks never see the secrets.
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Unique tag that test-ai.mjs uses to find this run
+        required: false
+        default: manual
+      clis:
+        description: JSON array of CLIs to test
+        required: true
+        default: '["claude","codex","copilot","opencode"]'
+      platforms:
+        description: JSON array of runner labels
+        required: true
+        default: '["ubuntu-latest","ubuntu-24.04-arm","macos-latest","macos-15-intel","windows-latest","windows-11-arm"]'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: vscode-extension-real-ai
+  cancel-in-progress: false
+
+jobs:
+  real-cli:
+    name: ${{ matrix.cli }} on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    environment: real-ai
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: ${{ fromJSON(inputs.platforms) }}
+        cli: ${{ fromJSON(inputs.clis) }}
+    defaults:
+      run:
+        shell: bash
+        working-directory: vscode-extension
+    env:
+      SHARP_PEN_REAL_CLI: ${{ matrix.cli }}
+      RESULT: real-ai-${{ matrix.os }}-${{ matrix.cli }}.json
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: vscode-extension/package-lock.json
+      - run: npm ci
+      - run: npm run compile && npx tsc -p tsconfig.test.json
+
+      - name: Install ${{ matrix.cli }} (latest)
+        env:
+          PACKAGE: ${{ fromJSON('{"claude":"@anthropic-ai/claude-code","codex":"@openai/codex","copilot":"@github/copilot","opencode":"opencode-ai"}')[matrix.cli] }}
+        run: npm install -g --no-audit --no-fund "$PACKAGE"
+
+      # Only this job's own CLI login is exposed to it.
+      - name: Stage login
+        env:
+          CODEX_AUTH: ${{ matrix.cli == 'codex' && secrets.SHARP_PEN_CODEX_AUTH || '' }}
+          OPENCODE_AUTH: ${{ matrix.cli == 'opencode' && secrets.SHARP_PEN_OPENCODE_AUTH || '' }}
+        run: |
+          if [ -n "$CODEX_AUTH" ]; then
+            mkdir -p "$RUNNER_TEMP/codex" && printf '%s' "$CODEX_AUTH" > "$RUNNER_TEMP/codex/auth.json"
+            echo "CODEX_HOME=$RUNNER_TEMP/codex" >> "$GITHUB_ENV"
+          fi
+          if [ -n "$OPENCODE_AUTH" ]; then
+            mkdir -p "$RUNNER_TEMP/xdg/opencode" && printf '%s' "$OPENCODE_AUTH" > "$RUNNER_TEMP/xdg/opencode/auth.json"
+            echo "XDG_DATA_HOME=$RUNNER_TEMP/xdg" >> "$GITHUB_ENV"
+          fi
+
+      - name: Real ${{ matrix.cli }} analysis in VS Code
+        env:
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ matrix.cli == 'claude' && secrets.SHARP_PEN_CLAUDE_TOKEN || '' }}
+          COPILOT_GITHUB_TOKEN: ${{ matrix.cli == 'copilot' && secrets.SHARP_PEN_COPILOT_TOKEN || '' }}
+        run: |
+          export SHARP_PEN_RESULT_FILE="$RUNNER_TEMP/$RESULT"
+          if [ "$RUNNER_OS" = Linux ]; then
+            command -v xvfb-run >/dev/null || { sudo apt-get update && sudo apt-get install -y xvfb; }
+            xvfb-run -a node out/test/integration/runTest.js
+          else
+            node out/test/integration/runTest.js
+          fi
+
+      - name: Record a failure that happened before the test ran
+        if: always()
+        run: |
+          [ -f "$RUNNER_TEMP/$RESULT" ] || node -e 'require("fs").writeFileSync(process.argv[1], JSON.stringify({ cli: process.env.SHARP_PEN_REAL_CLI, outcome: "fail", detail: "the job failed before the test wrote a result; see the job log", steps: [] }))' "$RUNNER_TEMP/$RESULT"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: real-ai-${{ matrix.os }}-${{ matrix.cli }}
+          path: ${{ runner.temp }}/${{ env.RESULT }}

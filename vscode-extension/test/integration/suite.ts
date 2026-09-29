@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { resolve } from "node:path";
 import * as vscode from "vscode";
 import { cliFixture } from "../ai/cliFixture";
+import { runRealCli } from "./realCli";
 
 // Every flag the Claude adapter probes for, so the fake CLI passes as a safe, current install.
 const claudeHelp = [
@@ -13,15 +14,17 @@ const demo = resolve(__dirname, "../../../test/fixtures/demo.md");
 
 /** Smoke test in a real VS Code: activation, the review webview, and one analysis through a spawned CLI. */
 export async function run(): Promise<void> {
+  // `npm run test:ai` sets this to test one real, signed-in CLI instead of the fake ones.
+  if (process.env.SHARP_PEN_REAL_CLI) return runRealCli(process.env.SHARP_PEN_REAL_CLI);
   const fixture = await cliFixture({ help: claudeHelp, output: JSON.stringify(emptyReview) });
   try {
     const document = await vscode.workspace.openTextDocument(demo);
     await vscode.window.showTextDocument(document);
     await vscode.commands.executeCommand("sharpPen.openReview");
     assert.ok(await eventually(reviewPanelOpen), "the review panel did not open");
-    const status = await vscode.commands.executeCommand<{ state: string; error?: string }>("sharpPen.analyze", document.uri);
+    const status = await vscode.commands.executeCommand<{ state: string; error?: string; suggestions: number }>("sharpPen.analyze", document.uri);
     // The open review panel now has focus, so pass the URI as the editor menu does.
-    assert.deepEqual(status, { state: "ready", error: undefined });
+    assert.deepEqual(status, { state: "ready", error: undefined, suggestions: 0 });
   } finally {
     await fixture.restore();
   }

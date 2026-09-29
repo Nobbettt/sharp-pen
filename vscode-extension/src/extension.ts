@@ -14,7 +14,12 @@ const supportedLanguages = new Set(["markdown", "plaintext"]);
 // Editors for these schemes are the user's own documents; output channels, diffs, and SCM inputs are not.
 const followedSchemes = new Set(["file", "untitled"]);
 
-export function activate(context: vscode.ExtensionContext): void {
+/** Returned from activate for the real-CLI integration test, which must pick a client the way the settings panel does. */
+export interface SharpPenApi {
+  setClient(client: AiClient): Promise<void>;
+}
+
+export function activate(context: vscode.ExtensionContext): SharpPenApi {
   const reviews = new Map<string, ReviewController>();
   // The one review panel belongs to `shown`; every other review is detached, keeping its state until shown again.
   let shown: ReviewController | undefined;
@@ -144,6 +149,7 @@ export function activate(context: vscode.ExtensionContext): void {
     { dispose: () => reviews.forEach((controller) => controller.dispose()) },
     { dispose: () => settingsPanel?.dispose() },
   );
+  return { setClient: (client) => settings.setClient(client) };
 }
 
 export function deactivate(): void {}
