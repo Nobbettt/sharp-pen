@@ -49,6 +49,8 @@ function tooLargeOrComplex(source: string, format: "markdown" | "plaintext"): bo
 }
 
 const trustErrorMessage = "Trust this workspace before running sharp-pen analysis.";
+/** While typing, at most one state per this interval reaches the webview (each parses and re-renders the document). */
+const TYPING_STATE_INTERVAL_MS = 50;
 
 export class ReviewController implements vscode.Disposable {
   private host: vscode.WebviewPanel | undefined;
@@ -67,6 +69,8 @@ export class ReviewController implements vscode.Disposable {
   private ignoreEditorScrollUntil = 0;
   private disposed = false;
   private panelDisposables: vscode.Disposable[] = [];
+  private typingTimer: ReturnType<typeof setTimeout> | undefined;
+  private typingStatePending = false;
 
   constructor(
     document: vscode.TextDocument,
@@ -181,7 +185,7 @@ export class ReviewController implements vscode.Disposable {
       this.decisions = result.decisions;
       if (this.state !== "analyzing") this.state = "modified";
     }
-    this.postState();
+    this.postTypingState();
   }
 
   onEditorVisibleRanges(event: vscode.TextEditorVisibleRangesChangeEvent): void {
@@ -338,6 +342,7 @@ export class ReviewController implements vscode.Disposable {
     this.disposed = true;
     try {
       this.cancelAnalysis();
+      clearTimeout(this.typingTimer);
       this.detach()?.dispose();
     } finally {
       this.onDispose();
@@ -351,6 +356,19 @@ export class ReviewController implements vscode.Disposable {
       panel.onDidDispose(() => this.dispose()),
       panel.webview.onDidReceiveMessage((message: unknown) => this.receive(message)),
     ];
+  }
+
+  /** The first edit after a pause posts at once; a burst of keystrokes then posts its latest state once per interval. */
+  private postTypingState(): void {
+    if (this.typingTimer) {
+      this.typingStatePending = true;
+      return;
+    }
+    this.postState();
+    this.typingTimer = setTimeout(() => {
+      this.typingTimer = undefined;
+      if (this.typingStatePending) this.postTypingState();
+    }, TYPING_STATE_INTERVAL_MS);
   }
 
   private post(message: unknown): void {
@@ -509,6 +527,7 @@ export class ReviewController implements vscode.Disposable {
   }
 
   private postState(): void {
+    this.typingStatePending = false;
     if (this.disposed || !this.host) return;
     const source = this.review?.currentSource ?? this.document.getText();
     const format = this.document.languageId === "markdown" ? "markdown" : "plaintext";

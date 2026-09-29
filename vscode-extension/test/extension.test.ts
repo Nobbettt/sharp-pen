@@ -99,6 +99,7 @@ function activateExtension() {
   const panels: Array<{ posted: any[]; receive: (message: unknown) => void; disposed: boolean; onDisposeListener?: () => void; options?: any }> = [];
   let closeListener: (document: any) => void = () => {};
   let activeEditorListener: (editor: any) => void = () => {};
+  let changeListener: (event: any) => void = () => {};
   const commandHandlers: Record<string, (...args: any[]) => unknown> = {};
   let documents: any[] = [];
   const warnings: string[] = [];
@@ -112,7 +113,7 @@ function activateExtension() {
       get isTrusted() { return true; },
       get textDocuments() { return documents; },
       applyEdit: async () => false,
-      onDidChangeTextDocument: () => disposable,
+      onDidChangeTextDocument: (listener: (event: any) => void) => { changeListener = listener; return disposable; },
       onDidCloseTextDocument: (listener: (document: any) => void) => { closeListener = listener; return disposable; },
       onDidGrantWorkspaceTrust: () => disposable,
     },
@@ -159,6 +160,7 @@ function activateExtension() {
   return {
     panels, commandHandlers, warnings,
     close: (document: any) => closeListener(document),
+    change: (document: any) => changeListener({ document, contentChanges: [{ range: {}, rangeOffset: 0, rangeLength: 0, text: "x" }] }),
     focus: (document: any) => activeEditorListener(document && { document }),
     setDocuments: (next: any[]) => { documents = next; },
   };
@@ -220,6 +222,24 @@ test("the review panel stays alive while hidden instead of reloading on every ta
   commandHandlers["sharpPen.openReview"](a.uri);
   assert.equal(panels[0].options.retainContextWhenHidden, true);
   assert.equal(panels[0].options.enableCommandUris, false);
+});
+
+test("a burst of keystrokes posts the first state at once, then only the latest once per interval", async () => {
+  const { panels, commandHandlers, setDocuments, change } = activateExtension();
+  const a = markdownDocument("a.md");
+  setDocuments([a]);
+  commandHandlers["sharpPen.openReview"](a.uri);
+  panels[0].receive({ type: "ready" });
+  const states = () => panels[0].posted.filter((message) => message.type === "state");
+  const before = states().length;
+
+  for (let version = 2; version <= 6; version++) { a.version = version; change(a); }
+  assert.equal(states().length, before + 1, "the first edit posts immediately");
+  assert.equal(states().at(-1).model.documentVersion, 2);
+
+  await new Promise((resolve) => setTimeout(resolve, 80));
+  assert.equal(states().length, before + 2, "the rest of the burst posts once");
+  assert.equal(states().at(-1).model.documentVersion, 6, "with the latest version");
 });
 
 test("the review panel ignores output channels, diffs, and unsupported languages", () => {
