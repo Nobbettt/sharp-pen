@@ -11,7 +11,7 @@ import { installedLanguageIds } from "./review/languages";
 import type { Chunk } from "./review/chunks";
 import type { Decision, Decisions, Level, Review, ResolvedReview, Suggestion } from "./review/types";
 import { CHUNK_CONCURRENCY, chunkDocumentAsync, quickAnalysisProblem, sectionTooLargeMessage } from "./review/chunks";
-import { REVIEW_LIMITS, ReviewValidationError, createReview, frontMatterRange, validateAndResolve } from "./review/validate";
+import { REVIEW_LIMITS, ReviewValidationError, createReview, frontMatterRange, markdownComplexityMessage, validateAndResolve } from "./review/validate";
 import { reviewWebviewHtml, type ReviewWebviewModel } from "./webview/reviewWebview";
 import type { PreviewTheme } from "./config";
 
@@ -78,7 +78,7 @@ function analysisBlocker(source: string, format: "markdown" | "plaintext"): stri
 class SectionError extends Error {}
 
 /** The text a section's failure is described with; raw CLI output never reaches it (see ProcessRunnerError). */
-const failureText = (error: unknown) => error instanceof ProcessRunnerError ? error.message : "Analysis failed.";
+const failureText = (error: unknown) => error instanceof ProcessRunnerError || (error instanceof ReviewValidationError && error.message === markdownComplexityMessage) ? error.message : "Analysis failed.";
 
 const trustErrorMessage = "Trust this workspace before running sharp-pen analysis.";
 /** While typing, at most one state per this interval reaches the webview (each parses and re-renders the document). */
@@ -296,6 +296,7 @@ export class ReviewController implements vscode.Disposable {
               const chunk = chunks![index];
               const text = snapshot.source.slice(chunk.start, chunk.end);
               try {
+                if (chunk.unreadable) throw new ReviewValidationError(markdownComplexityMessage);
                 const request: AnalysisRequest = total > 1
                   ? { ...snapshot, source: text, chunk: { index, total, ...(chunk.section ? { section: chunk.section } : {}) } }
                   : snapshot;

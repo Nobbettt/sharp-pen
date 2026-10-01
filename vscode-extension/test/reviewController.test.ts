@@ -1542,3 +1542,47 @@ test("a document above 100k can be analysed, but one with a block too big for a 
   assert.equal(blocked.status().error, "Document has a section too large to analyze.");
   blocked.dispose();
 });
+
+
+// ---- Documents above the request limit: no typing-time complexity prediction (amendment 2) ----
+
+const countingRunner = (requests: string[]) => async (request: { source: string }) => { requests.push(request.source); return { title: "Draft", level1: [], level2: [] }; };
+const realisticParagraph = "Use `client.fetch()` to read the [API reference](https://example.com/api) and **validate** the result before retrying.\n\n";
+
+for (const [count, sections] of [[2_600, 16], [8_300, 50]]) {
+  test(`a realistic ${count}-paragraph Markdown document is admitted and analysed in ${sections} sections without errors`, async () => {
+    const source = realisticParagraph.repeat(count);
+    const requests: string[] = [];
+    const active = controller(source, countingRunner(requests));
+    await active.analyze();
+    assert.equal(lastModel().state, "ready");
+    assert.equal(lastModel().error, undefined);
+    assert.equal(requests.length, sections);
+    assert.equal(requests.join(""), source);
+    active.dispose();
+  });
+}
+
+test("one too-complex section among several is reported as failed while the other sections' suggestions are published", async () => {
+  const source = `${paragraphs(650)}${"*abcdefgh* \n".repeat(2_300)}\n${paragraphs(650)}`; // above the request limit
+  const active = controller(source, async () => typoResponse);
+  await active.analyze();
+  const model = lastModel();
+  assert.equal(model.state, "ready");
+  assert.match(model.error.message, /^\d+ of \d+ sections could not be analyzed: Markdown is too structurally complex to analyze$/);
+  assert.equal(model.error.action, "analyze");
+  assert.ok(model.level1.length >= 2, `${model.level1.length} suggestions`);
+  active.dispose();
+});
+
+test("a document up to the request limit that starts with a BOM is analysed whenever the whole-document check accepts it", async () => {
+  const source = "\ufeff" + "- item data\n".repeat(2_049);
+  assert.ok(source.length > 20_000 && source.length <= REVIEW_LIMITS.source);
+  const requests: string[] = [];
+  const active = controller(source, countingRunner(requests));
+  await active.analyze();
+  assert.equal(lastModel().state, "ready");
+  assert.equal(lastModel().error, undefined);
+  assert.ok(requests.length >= 1);
+  active.dispose();
+});

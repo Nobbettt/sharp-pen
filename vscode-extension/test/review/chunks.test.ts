@@ -463,3 +463,28 @@ test("the definition scan looks at each character a bounded number of times, how
     assert.ok(looked <= 4 * 8_000 + 2 * 100_000, `${looked} characters scanned for one edit`);
   }
 });
+
+for (const labelLength of [999, 1000]) {
+  const label = "x".repeat(labelLength);
+  const withDefinition = (destination: string) => `[${label}]: ${destination}\n\nText [label][${label}].\n\n${"Ordinary paragraph.\n\n".repeat(5_500)}`;
+  test(`a destination added to a definition with a ${labelLength}-character label gives the exclusions of a computation from scratch`, () => {
+    resetDocumentCache();
+    documentExcludedRanges(withDefinition(""));
+    const incremental = documentExcludedRanges(withDefinition("/dest"));
+    resetDocumentCache();
+    assert.deepEqual(incremental, documentExcludedRanges(withDefinition("/dest")));
+  });
+
+  // A 1000-character label is no definition, so the correction is harmless there; only 999 must be refused.
+  if (labelLength === 999) test(`Apply refuses a correction that breaks a link once a destination was added to a ${labelLength}-character label's definition`, () => {
+    const source = withDefinition("/dest");
+    const start = source.indexOf("[label]");
+    resetDocumentCache();
+    documentExcludedRanges(withDefinition(""));
+    const review = createReview(source, { documentVersion: 3, format: "markdown" }, {
+      title: "T", level1: [{ id: "a", level: 1, start, end: start + 7, from: "[label]", options: ["label"], note: "Brackets", status: "active" }], level2: [], skipped: 0,
+    });
+    const prepared = prepareApply(review, { a: { option: 0 } }, source, 3);
+    assert.deepEqual(prepared.edits, []);
+  });
+}

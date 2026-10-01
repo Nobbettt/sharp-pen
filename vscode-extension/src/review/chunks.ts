@@ -14,6 +14,8 @@ export interface Chunk {
   end: number;
   /** Markdown only: the headings above the chunk's first line, e.g. "Install › macOS". */
   section?: string;
+  /** Part of the chunk could not be parsed; it is reported as a failed section instead of being sent. */
+  unreadable?: boolean;
 }
 
 /** A top-level block, as far as it matters here: where it starts and how good a place that is to split. */
@@ -22,6 +24,8 @@ interface Block {
   /** A heading beats a rule beats a paragraph break; 0 for the first block. */
   score: number;
   heading?: { level: number; text: string };
+  /** The span from here to the next block could not be read (too complex to parse), so it is never sent. */
+  unreadable?: boolean;
 }
 
 /** Everything the document-level helpers need, computed in one pass and reused after small edits. */
@@ -73,6 +77,18 @@ function mergeRanges(ranges: OffsetRange[]): OffsetRange[] {
 }
 
 /**
+ * A window too complex to parse has no known block boundaries. Its lines (up to the last full one) become one
+ * block that is reported as a failed section and left out of the suggestions; the run goes on after it.
+ * A document within the request limit never gets here, so the span is at most REVIEW_LIMITS.source + 1 long.
+ */
+function unreadableWindow(source: string, pos: number, end: number): Window {
+  if (end - pos > REVIEW_LIMITS.source) throw new ReviewValidationError(sectionTooLargeMessage);
+  const lineEnd = end >= source.length ? source.length : source.lastIndexOf("\n", end - 1) + 1;
+  const next = lineEnd > pos ? lineEnd : end;
+  return { blocks: [{ start: pos, score: pos === 0 ? 0 : BREAK_SCORE, unreadable: true }], ranges: [{ start: pos, end: next }], next };
+}
+
+/**
  * Parses about `size` characters from `pos`, which is a known top-level block start, with the same parser
  * and GFM setup as the exclusions. The last block of a window may be cut off by the window's end, so it is
  * not confirmed: the next window starts there. A block that fills the whole window makes the window grow,
@@ -85,9 +101,14 @@ function scanWindow(source: string, pos: number, size: number): Window {
   for (;;) {
     const text = source.slice(pos + bom, end);
     parseStats.characters += text.length;
-    if (markdownTooComplex(text)) throw new ReviewValidationError(markdownComplexityMessage);
-    let tree: MdNode;
-    try { tree = parseGfmMarkdown(text) as MdNode; } catch { throw new ReviewValidationError(markdownComplexityMessage); }
+    // Up to the request limit the document passed main's whole-document check (BOM included) before it got here,
+    // and re-checking the BOM-less text could disagree with it; above it only this window's own text is checked.
+    let tree: MdNode | undefined;
+    if (source.length > REVIEW_LIMITS.source && markdownTooComplex(text)) tree = undefined;
+    else {
+      try { tree = parseGfmMarkdown(text) as MdNode; } catch { tree = undefined; }
+    }
+    if (!tree) return unreadableWindow(source, pos, end);
     const atEnd = end >= source.length;
     const found: Array<{ start: number; node: MdNode }> = [];
     for (const node of tree.children ?? []) {
@@ -140,15 +161,16 @@ function lastStartAtMost(items: ReadonlyArray<{ start: number }>, offset: number
 /** For tests: how many characters the definition-candidate scanner has looked at. */
 export const definitionScanStats = { characters: 0 };
 
-/** CommonMark caps a link label at 999 characters. */
+/** CommonMark caps a link label at 999 characters, so its closing `]` is at most this far after the `[`. */
 const MAX_LABEL = 999;
+const MAX_CLOSE = MAX_LABEL + 1;
 
 /**
  * Whether `text` has, starting between `from` and `to`, something that may be a link reference definition:
- * a `[label]:` whose label has no unescaped bracket and no blank line and is at most MAX_LABEL long. It is
+ * a `[label]:` whose label has no unescaped bracket and no blank line and is at most MAX_LABEL long (the `]` may sit at MAX_CLOSE). It is
  * deliberately loose (prose, containers and indentation all count): a definition decides how a `[text][label]`
  * in ANY other block parses, so a block that holds one can't be re-read alone. Linear: a scan from a `[`
- * stops at the next bracket or after MAX_LABEL characters, and the next scan starts after that point.
+ * stops at the next bracket or after MAX_CLOSE characters, and the next scan starts after that point.
  */
 function hasDefinitionCandidate(text: string, from: number, to: number): boolean {
   const limit = Math.min(to, text.length);
@@ -156,7 +178,7 @@ function hasDefinitionCandidate(text: string, from: number, to: number): boolean
   while (open !== -1 && open < limit) {
     let index = open + 1;
     let resume = -1;
-    for (; index < text.length && index - open <= MAX_LABEL; index += 1) {
+    for (; index < text.length && index - open <= MAX_CLOSE; index += 1) {
       const char = text[index];
       if (char === "\\") { index += 1; continue; }
       if (char === "]") { if (text[index + 1] === ":") { definitionScanStats.characters += index - open; return true; } resume = index + 1; break; }
@@ -406,7 +428,8 @@ function chunksFrom(source: string, format: "markdown" | "plaintext", blocks: Bl
       stack.push(heading);
     }
     const section = format === "markdown" ? sectionLabel(stack) : undefined;
-    chunks.push({ start, end, ...(section ? { section } : {}) });
+    const unreadable = blocks.some((block) => block.unreadable && block.start >= start && block.start < end);
+    chunks.push({ start, end, ...(section ? { section } : {}), ...(unreadable ? { unreadable } : {}) });
     start = end;
   }
   return chunks;
@@ -421,21 +444,12 @@ export function chunkDocument(source: string, format: "markdown" | "plaintext", 
   return chunksFrom(source, format, format === "markdown" ? documentState(source).blocks : plainBlocks(source), target);
 }
 
-/** Slice length for the typing check on a long document; see quickAnalysisProblem. */
-const SLICE = 25_000;
-/** A parse window or a chunk is at most REVIEW_LIMITS.source + 1 characters, so it touches at most this many slices. */
-const SLICES_PER_UNIT = Math.floor(REVIEW_LIMITS.source / SLICE) + 2;
-
 /**
- * The cheap, linear check that runs while typing, and the contract the analysis then keeps: a document it
- * accepts is never refused for complexity or for a section too big once chunking starts.
- *
- * Up to REVIEW_LIMITS.source it is exactly the whole-document check a single request has always had; every
- * window and chunk is then part of a text that passed it. Above that, every analysis step (a parse window,
- * which grows to REVIEW_LIMITS.source + 1, and a chunk, which is at most that) checks a span of at most
- * that length at the full limits. Slices of at least SLICE characters cover any such span with
- * SLICES_PER_UNIT neighbours, so checking every run of that many slices at the full limits guarantees each
- * step passes. Plain text needs only its longest paragraph measured, since it splits at blank lines.
+ * The cheap, linear check that runs while typing. Up to REVIEW_LIMITS.source it is exactly the
+ * whole-document check a single request has always had, so a document is admitted exactly when it was
+ * before sectioning. Above that there is no complexity prediction: a window or section that is too complex is
+ * reported as a failed section when the analysis reaches it. Only plain text is measured, since its longest
+ * paragraph (it splits at blank lines) must fit a request; a Markdown block that is too big is found by the parse.
  */
 export function quickAnalysisProblem(source: string, format: "markdown" | "plaintext"): "complex" | "section" | undefined {
   if (format === "plaintext") {
@@ -446,16 +460,7 @@ export function quickAnalysisProblem(source: string, format: "markdown" | "plain
     }
     return undefined;
   }
-  if (source.length <= REVIEW_LIMITS.source) return markdownTooComplex(source) ? "complex" : undefined;
-  const bounds = [0];
-  while (bounds[bounds.length - 1] < source.length) {
-    const newline = source.indexOf("\n", bounds[bounds.length - 1] + SLICE);
-    bounds.push(newline === -1 ? source.length : newline + 1);
-  }
-  for (let slice = 0; slice + 1 < bounds.length; slice += 1) {
-    if (markdownTooComplex(source.slice(bounds[slice], bounds[Math.min(slice + SLICES_PER_UNIT, bounds.length - 1)]))) return "complex";
-  }
-  return undefined;
+  return source.length <= REVIEW_LIMITS.source && markdownTooComplex(source) ? "complex" : undefined;
 }
 
 /**
@@ -480,6 +485,7 @@ export async function chunkDocumentAsync(source: string, format: "markdown" | "p
 export function documentBlockSlices(source: string): Array<{ start: number; text: string }> | undefined {
   let state: DocState;
   try { state = documentState(source); } catch { return undefined; }
+  if (state.blocks.some((block) => block.unreadable)) return undefined;
   return state.blocks.map((block, index) => ({ start: block.start, text: source.slice(block.start, state.blocks[index + 1]?.start ?? source.length) }));
 }
 
