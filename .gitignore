@@ -19,3 +19,10 @@ private-docs/
 
 # local agent notes for the extension, never committed
 vscode-extension/AGENTS.md
+
+# local Copilot custom agent profiles and skills
+.github/agents/
+.github/skills/
+
+# git worktrees for parallel implementer agents
+.worktrees/
