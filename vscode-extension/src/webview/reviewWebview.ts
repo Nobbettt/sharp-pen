@@ -26,6 +26,8 @@ export interface ReviewWebviewModel {
   level2: WebviewSuggestion[];
   state: "empty" | "analyzing" | "ready" | "modified" | "applied" | "error";
   applying: boolean;
+  /** Present only while a document analysed in several sections is running. */
+  progress?: { done: number; total: number };
   canAnalyze: boolean;
   hasReview: boolean;
   canToggleTasks: boolean;

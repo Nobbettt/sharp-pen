@@ -10,7 +10,13 @@ export function reviewCountStatus(
   overall: number,
   accepted: number,
   total: number,
+  progress?: { done: number; total: number },
 ): ReviewCountStatus {
+  // Suggestions of finished sections are already listed, so progress must win over the accepted count.
+  if (state === "analyzing" && progress && progress.total > 1) {
+    const text = `Analyzed ${progress.done} of ${progress.total} sections`;
+    return { text, label: text };
+  }
   if (total > 0) return { text: `${accepted}/${total}`, label: `${accepted} of ${total} suggestions accepted` };
   if (overall > 0) return { text: `No L${level} suggestions`, label: `No level ${level} suggestions` };
   if (state === "analyzing") return { text: "Analyzing…", label: "Analysis in progress" };

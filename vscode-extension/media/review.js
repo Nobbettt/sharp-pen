@@ -19811,7 +19811,11 @@
   }
 
   // src/webview/reviewStatus.ts
-  function reviewCountStatus(state, level, overall, accepted, total) {
+  function reviewCountStatus(state, level, overall, accepted, total, progress) {
+    if (state === "analyzing" && progress && progress.total > 1) {
+      const text2 = `Analyzed ${progress.done} of ${progress.total} sections`;
+      return { text: text2, label: text2 };
+    }
     if (total > 0) return { text: `${accepted}/${total}`, label: `${accepted} of ${total} suggestions accepted` };
     if (overall > 0) return { text: `No L${level} suggestions`, label: `No level ${level} suggestions` };
     if (state === "analyzing") return { text: "Analyzing\u2026", label: "Analysis in progress" };
@@ -20377,7 +20381,7 @@ ${source}`;
       const accepted = suggestions.filter((s) => s.status === "active" && validOption(s)).length;
       const total = suggestions.filter((s) => s.status === "active").length;
       const hasPending = suggestions.some((s) => s.status === "active" && isPending(s));
-      const count = reviewCountStatus(model.state, level, all().length, accepted, total);
+      const count = reviewCountStatus(model.state, level, all().length, accepted, total, model.progress);
       els.count.value = count.text;
       els.count.textContent = count.text;
       els.count.setAttribute("aria-label", count.label);

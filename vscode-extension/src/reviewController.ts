@@ -9,7 +9,8 @@ import { markdownFences } from "./review/fences";
 import { parseMarkdownTree } from "./review/markdownTree";
 import { installedLanguageIds } from "./review/languages";
 import type { Decision, Decisions, Level, Review, ResolvedReview, Suggestion } from "./review/types";
-import { REVIEW_LIMITS, createReview, frontMatterRange, markdownTooComplex, validateAndResolve } from "./review/validate";
+import { CHUNK_CONCURRENCY, chunkDocument } from "./review/chunks";
+import { REVIEW_LIMITS, ReviewValidationError, createReview, frontMatterRange, markdownTooComplex, validateAndResolve } from "./review/validate";
 import { reviewWebviewHtml, type ReviewWebviewModel } from "./webview/reviewWebview";
 import type { PreviewTheme } from "./config";
 
@@ -19,6 +20,8 @@ export interface AnalysisRequest {
   source: string;
   uri: string;
   documentVersion: number;
+  /** Set only when the document is analysed in sections; `source` is then just that section's text. */
+  chunk?: { index: number; total: number; section?: string };
 }
 
 /** Phase 2 supplies one provider-neutral function; the controller validates its result. */
@@ -31,7 +34,13 @@ interface AnalysisJob {
   previousNotice: string | undefined;
   previousTaskError: boolean;
   previousFenceError: boolean;
+  /** The review shown before the run; sections replace the displayed review as they finish, so Cancel and an edit restore this one. */
+  previousReview: Review | undefined;
+  previousDecisions: Decisions;
   documentChanged: boolean;
+  /** An edit aborted the run (as opposed to Cancel): the run ends with the "document changed" error. */
+  editAborted: boolean;
+  progress?: { done: number; total: number };
 }
 
 interface ApplyJob {
@@ -43,10 +52,31 @@ interface ApplyJob {
   conflicted: boolean;
 }
 
-/** Documents this size or Markdown this structurally complex can't be sent to an agent (see validate.ts). */
-function tooLargeOrComplex(source: string, format: "markdown" | "plaintext"): boolean {
-  return source.length > REVIEW_LIMITS.source || (format === "markdown" && markdownTooComplex(source));
+const tooLargeMessage = "Document is too large or complex to analyze.";
+let blockerCache: { source: string; format: string; message: string | undefined } | undefined;
+
+/**
+ * Why a document can't be analysed, or undefined when it can: too long, a block too big for one request,
+ * or a section too structurally complex (see validate.ts). It runs on every typing state post, so the
+ * answer for the same text is remembered and the check stays linear.
+ */
+function analysisBlocker(source: string, format: "markdown" | "plaintext"): string | undefined {
+  if (blockerCache && blockerCache.source === source && blockerCache.format === format) return blockerCache.message;
+  let message: string | undefined;
+  if (source.length > REVIEW_LIMITS.document) message = tooLargeMessage;
+  else {
+    try {
+      if (format === "markdown" && chunkDocument(source, format).some((chunk) => markdownTooComplex(source.slice(chunk.start, chunk.end)))) message = tooLargeMessage;
+    } catch (error) {
+      message = error instanceof ReviewValidationError ? error.message : tooLargeMessage;
+    }
+  }
+  blockerCache = { source, format, message };
+  return message;
 }
+
+/** The text a section's failure is described with; raw CLI output never reaches it (see ProcessRunnerError). */
+const failureText = (error: unknown) => error instanceof ProcessRunnerError ? error.message : "Analysis failed.";
 
 const trustErrorMessage = "Trust this workspace before running sharp-pen analysis.";
 /** While typing, at most one state per this interval reaches the webview (each parses and re-renders the document). */
@@ -170,8 +200,18 @@ export class ReviewController implements vscode.Disposable {
     if (event.document.uri.toString() !== this.document.uri.toString()) return;
     // Save and other dirty-state-only events report no content changes; only real edits reconcile the review.
     if (event.contentChanges.length === 0) return;
-    if (this.analysis) this.analysis.documentChanged = true;
     const source = event.document.getText();
+    const job = this.analysis;
+    if (job) {
+      job.documentChanged = true;
+      // The suggestions in flight were placed against text that no longer exists: stop paying for them now.
+      if (!job.abort.signal.aborted) { job.editAborted = true; job.abort.abort(); }
+      if (job.previousReview) {
+        const previous = reconcileSourceChanges(job.previousReview, job.previousDecisions, event.contentChanges, source, event.document.version);
+        job.previousReview = previous.review;
+        job.previousDecisions = previous.decisions;
+      }
+    }
     if (this.applying) {
       if (event.document.version === this.applying.resultVersion && source === this.applying.result) {
         this.applying.sawExpectedChange = true;
@@ -206,8 +246,15 @@ export class ReviewController implements vscode.Disposable {
     if (!vscode.workspace.isTrusted) return this.fail(trustErrorMessage);
     if (!this.runner) return this.fail("Analysis is not connected yet.", "openSettings");
     const snapshot = this.snapshot();
-    if (tooLargeOrComplex(snapshot.source, snapshot.format)) return this.fail("Document is too large or complex to analyze.");
-    const job: AnalysisJob = { abort: new AbortController(), previousState: this.state, previousError: this.error, previousNotice: this.notice, previousTaskError: this.taskError, previousFenceError: this.fenceError, documentChanged: false };
+    const blocker = analysisBlocker(snapshot.source, snapshot.format);
+    if (blocker) return this.fail(blocker);
+    const chunks = chunkDocument(snapshot.source, snapshot.format);
+    const total = chunks.length;
+    const job: AnalysisJob = {
+      abort: new AbortController(), previousState: this.state, previousError: this.error, previousNotice: this.notice, previousTaskError: this.taskError,
+      previousFenceError: this.fenceError, previousReview: this.review, previousDecisions: this.decisions, documentChanged: false, editAborted: false,
+      ...(total > 1 ? { progress: { done: 0, total } } : {}),
+    };
     this.analysis = job;
     this.state = "analyzing";
     this.taskError = false;
@@ -218,24 +265,67 @@ export class ReviewController implements vscode.Disposable {
     try {
       await vscode.window.withProgress(
         { location: vscode.ProgressLocation.Notification, title: "sharp-pen is analyzing", cancellable: true },
-        async (_progress, token) => {
+        async (progress, token) => {
           token.onCancellationRequested(() => {
             if (this.analysis === job) this.cancelAnalysis();
             else job.abort.abort();
           });
-          const result = await this.runner!(snapshot, job.abort.signal);
-          if (job.abort.signal.aborted || this.analysis !== job) return;
-          if (this.document.version !== snapshot.documentVersion) {
+          const stopped = () => job.abort.signal.aborted || this.analysis !== job;
+          const outcomes: Array<ResolvedReview | undefined> = new Array(total).fill(undefined);
+          const failures: Array<{ index: number; error: unknown }> = [];
+          let next = 0;
+          let done = 0;
+          // Each worker takes the next unstarted section, so at most CHUNK_CONCURRENCY requests are ever in flight.
+          const worker = async (): Promise<void> => {
+            while (!stopped() && next < total) {
+              const index = next++;
+              const chunk = chunks[index];
+              const text = snapshot.source.slice(chunk.start, chunk.end);
+              try {
+                const request: AnalysisRequest = total > 1
+                  ? { ...snapshot, source: text, chunk: { index, total, ...(chunk.section ? { section: chunk.section } : {}) } }
+                  : snapshot;
+                const result = await this.runner!(request, job.abort.signal);
+                if (stopped()) return;
+                outcomes[index] = placeInDocument(validateAndResolve(text, result, snapshot.format, snapshot.title), chunk.start, total > 1 ? `c${index}-` : "");
+              } catch (error) {
+                if (stopped()) return;
+                failures.push({ index, error });
+              }
+              done += 1;
+              if (total > 1) {
+                job.progress = { done, total };
+                progress.report({ message: `${done} of ${total} sections` });
+                // Show what is finished so far; the run's own state stays "analyzing" and read-only.
+                if (outcomes[index] && this.document.version === snapshot.documentVersion) {
+                  this.review = createReview(snapshot.source, { documentVersion: snapshot.documentVersion, format: snapshot.format }, mergeSections(outcomes));
+                  this.decisions = {};
+                }
+                this.postState();
+              }
+            }
+          };
+          if (total > 1) progress.report({ message: `0 of ${total} sections` });
+          await Promise.all(Array.from({ length: Math.min(CHUNK_CONCURRENCY, total) }, worker));
+          if (this.analysis !== job || (job.abort.signal.aborted && !job.editAborted)) return;
+          if (job.editAborted || this.document.version !== snapshot.documentVersion) {
+            this.restorePrevious(job);
             this.state = this.review ? (job.documentChanged || job.previousState === "modified" ? "modified" : "ready") : "error";
             this.error = { message: "Document changed during analysis. Re-analyze to refresh suggestions.", action: "analyze" };
             return;
           }
-          const resolved = validateAndResolve(snapshot.source, result, snapshot.format, snapshot.title);
-          this.publish(snapshot, resolved, this.stagedChoiceCount());
+          failures.sort((a, b) => a.index - b.index);
+          if (failures.length === total) throw failures[0].error;
+          const discarded = Object.values(job.previousDecisions).filter((decision) => decision !== null).length;
+          this.publish(snapshot, mergeSections(outcomes), discarded);
+          if (failures.length) {
+            this.error = { message: `${failures.length} of ${total} sections could not be analyzed: ${failureText(failures[0].error)}`, action: "analyze" };
+          }
         },
       );
     } catch (error) {
       if (!job.abort.signal.aborted && this.analysis === job) {
+        this.restorePrevious(job);
         this.state = this.review ? (job.documentChanged || job.previousState === "modified" ? "modified" : "ready") : "error";
         this.error = error instanceof ProcessRunnerError
           ? { message: error.message, action: error.kind === "launch" ? "openSettings" : "analyze" }
@@ -257,6 +347,7 @@ export class ReviewController implements vscode.Disposable {
     if (!job) return;
     this.analysis = undefined;
     job.abort.abort();
+    this.restorePrevious(job);
     this.state = this.review && job.documentChanged ? "modified" : job.previousState;
     this.error = job.previousError;
     this.notice = job.previousNotice;
@@ -506,6 +597,12 @@ export class ReviewController implements vscode.Disposable {
     };
   }
 
+  /** Puts back the review that was shown before the run, discarding the sections that finished. */
+  private restorePrevious(job: AnalysisJob): void {
+    this.review = job.previousReview;
+    this.decisions = job.previousDecisions;
+  }
+
   private publish(snapshot: AnalysisRequest, resolved: ResolvedReview, discardedChoices: number): void {
     this.review = createReview(snapshot.source, { documentVersion: snapshot.documentVersion, format: snapshot.format }, resolved);
     this.decisions = {};
@@ -531,7 +628,8 @@ export class ReviewController implements vscode.Disposable {
     if (this.disposed || !this.host) return;
     const source = this.review?.currentSource ?? this.document.getText();
     const format = this.document.languageId === "markdown" ? "markdown" : "plaintext";
-    const oversized = tooLargeOrComplex(source, format);
+    const blocker = analysisBlocker(source, format);
+    const oversized = blocker !== undefined;
     const markdown = !oversized && this.document.languageId === "markdown";
     const tree = markdown ? parseMarkdownTree(source) : undefined;
     const suggestion = (item: Suggestion) => ({
@@ -557,9 +655,27 @@ export class ReviewController implements vscode.Disposable {
       frontMatterEnd: oversized || this.document.languageId !== "markdown" ? 0 : (frontMatterRange(source)?.end ?? 0),
       codeFenceLanguages: this.codeFenceLanguages,
       previewTheme: this.previewTheme,
-      ...(this.error ? { error: this.error } : oversized ? { error: { message: "Document is too large or complex to analyze." } } : {}),
+      ...(this.error ? { error: this.error } : blocker ? { error: { message: blocker } } : {}),
+      ...(this.analysis?.progress ? { progress: this.analysis.progress } : {}),
       ...(this.notice ? { notice: this.notice } : {}),
     };
     this.post({ type: "state", model });
   }
+}
+
+/** Moves a section's suggestions from section-relative offsets to document offsets, with ids that cannot collide across sections. */
+function placeInDocument(resolved: ResolvedReview, offset: number, idPrefix: string): ResolvedReview {
+  const move = (suggestion: Suggestion): Suggestion => ({ ...suggestion, id: `${idPrefix}${suggestion.id}`, start: suggestion.start + offset, end: suggestion.end + offset });
+  return { ...resolved, level1: resolved.level1.map(move), level2: resolved.level2.map(move) };
+}
+
+/** The sections finished so far, in document order, as one review. */
+function mergeSections(outcomes: ReadonlyArray<ResolvedReview | undefined>): ResolvedReview {
+  const done = outcomes.filter((outcome): outcome is ResolvedReview => outcome !== undefined);
+  return {
+    title: done[0]?.title ?? "",
+    level1: done.flatMap((outcome) => outcome.level1),
+    level2: done.flatMap((outcome) => outcome.level2),
+    skipped: done.reduce((sum, outcome) => sum + outcome.skipped, 0),
+  };
 }

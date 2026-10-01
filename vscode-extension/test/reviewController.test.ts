@@ -7,6 +7,7 @@ const Module = require("node:module") as { _load: (...args: any[]) => unknown };
 const load = Module._load;
 const disposable = { dispose() {} };
 const posted: any[] = [];
+const progressReports: any[] = [];
 let receive: (message: unknown) => void = () => {};
 let trusted = true;
 const vscode = {
@@ -49,7 +50,7 @@ const vscode = {
         },
       };
     },
-    withProgress: (_options: unknown, task: (progress: unknown, token: unknown) => Promise<unknown>) => task({}, { onCancellationRequested: () => disposable }),
+    withProgress: (_options: unknown, task: (progress: unknown, token: unknown) => Promise<unknown>) => task({ report: (value: unknown) => progressReports.push(value) }, { onCancellationRequested: () => disposable }),
   },
 };
 Module._load = (request: string, ...args: any[]) => request === "vscode" ? vscode : load(request, ...args);
@@ -137,7 +138,7 @@ test("closing the panel mid-analysis tears the controller down instead of throwi
 });
 
 test("oversized documents never enter the webview model", () => {
-  const active = controller("x".repeat(REVIEW_LIMITS.source + 1));
+  const active = controller("x".repeat(REVIEW_LIMITS.document + 1));
   receive({ type: "ready" });
   const model = posted.at(-1).model;
   assert.equal(model.currentSource, "");
@@ -1233,4 +1234,201 @@ test("fenced selector and themed scrollbar CSS leave indented code plain", () =>
   assert.match(script, /data-sharp-pen-fence-index/);
   assert.match(script, /function restoreFenceFocus\(/);
   assert.match(script, /Code block \$\{index \+ 1\} language/);
+});
+
+
+// ---- Analysis in sections (documents above CHUNK_TARGET) ----
+
+/** `count` paragraphs of about 100 characters, each with one typo, so every section has something to report. */
+function paragraphs(count: number): string {
+  return Array.from({ length: count }, (_, n) => `Paragraph ${n} has a teh typo in it and a few more words to fill the space up.\n\n`).join("");
+}
+const typoResponse = { title: "Draft", level1: [{ from: "teh", occurrence: 1, options: ["the"], note: "Typo" }], level2: [] };
+const settle = () => new Promise<void>((resolve) => setTimeout(resolve, 5));
+const sectionedSource = paragraphs(650); // about 55k characters, so at least three sections
+
+function lastModel() { return posted.at(-1).model; }
+
+test("sections are analysed as separate requests, and their suggestions are placed at document offsets with unique ids", async () => {
+  const requests: Array<{ source: string; chunk?: { index: number; total: number } }> = [];
+  const active = controller(sectionedSource, async (request) => { requests.push(request); return typoResponse; });
+  await active.analyze();
+  assert.ok(requests.length >= 3);
+  assert.equal(requests.map((request) => request.source).join(""), sectionedSource);
+  const model = lastModel();
+  assert.equal(model.state, "ready");
+  assert.equal(model.level1.length, requests.length);
+  assert.equal(new Set(model.level1.map((item: any) => item.id)).size, requests.length);
+  for (const item of model.level1) assert.equal(sectionedSource.slice(item.start, item.end), "teh");
+  // The suggestion of a later section sits in that section, not at the offset it had inside its own text.
+  const second = requests[1];
+  assert.ok(model.level1.some((item: any) => item.start === sectionedSource.indexOf(second.source) + second.source.indexOf("teh")));
+  assert.deepEqual(requests.map((request) => request.chunk?.index).sort(), requests.map((_, index) => index));
+  assert.equal(requests[0].chunk?.total, requests.length);
+  active.dispose();
+});
+
+test("progress is posted as each section finishes and is gone once the run ends", async () => {
+  progressReports.length = 0;
+  const active = controller(sectionedSource, async () => { await settle(); return typoResponse; });
+  await active.analyze();
+  const analyzing = posted.map((message) => message.model).filter((model) => model?.state === "analyzing");
+  const total = analyzing[0].progress.total;
+  assert.ok(total >= 3);
+  const seen = new Set(analyzing.map((model) => model.progress.done));
+  for (let done = 0; done < total; done += 1) assert.ok(seen.has(done), `no state showed ${done} of ${total} sections done`);
+  assert.equal(lastModel().progress, undefined);
+  assert.ok(progressReports.some((report) => new RegExp(`1 of ${total}`).test(report.message)));
+  active.dispose();
+});
+
+test("suggestions of finished sections are shown while the others are still running", async () => {
+  let release!: () => void;
+  const hold = new Promise<void>((resolve) => { release = resolve; });
+  const active = controller(sectionedSource, async (request) => { if (!request.source.includes("Paragraph 0 ")) await hold; return typoResponse; });
+  const run = active.analyze();
+  await settle();
+  const model = lastModel();
+  assert.equal(model.state, "analyzing");
+  assert.equal(model.level1.length, 1);
+  assert.equal(model.progress.done, 1);
+  release();
+  await run;
+  assert.ok(lastModel().level1.length >= 3);
+  active.dispose();
+});
+
+test("at most three section requests run at once", async () => {
+  let running = 0;
+  let peak = 0;
+  let calls = 0;
+  const active = controller(paragraphs(1_200), async () => {
+    calls += 1; running += 1; peak = Math.max(peak, running);
+    await settle();
+    running -= 1;
+    return typoResponse;
+  });
+  await active.analyze();
+  assert.ok(calls >= 5, `${calls} requests`);
+  assert.equal(peak, 3);
+  active.dispose();
+});
+
+test("a failed section does not stop the others and is reported at the end", async () => {
+  let calls = 0;
+  const active = controller(sectionedSource, async (request) => {
+    calls += 1;
+    if (request.chunk?.index === 1) throw new ProcessRunnerError("exit", "The AI client failed.");
+    return typoResponse;
+  });
+  await active.analyze();
+  const model = lastModel();
+  assert.equal(model.state, "ready");
+  assert.equal(model.level1.length, calls - 1);
+  assert.equal(model.error.message, `1 of ${calls} sections could not be analyzed: The AI client failed.`);
+  assert.equal(model.error.action, "analyze");
+  active.dispose();
+});
+
+test("when every section fails the run fails like a single request would", async () => {
+  const active = controller(sectionedSource, async () => { throw new ProcessRunnerError("launch", "The AI client could not be started."); });
+  await active.analyze();
+  assert.equal(lastModel().state, "error");
+  assert.equal(lastModel().error.message, "The AI client could not be started.");
+  assert.equal(lastModel().error.action, "openSettings");
+  active.dispose();
+});
+
+test("Cancel aborts every pending section, starts no more, and restores the previous review", async () => {
+  const signals: AbortSignal[] = [];
+  let hang = false;
+  const active = controller(sectionedSource, async (request, signal) => {
+    if (!hang) return typoResponse;
+    signals.push(signal);
+    return new Promise((_, reject) => signal.addEventListener("abort", () => reject(new Error("aborted"))));
+  });
+  await active.analyze();
+  const previous = lastModel().level1.length;
+  assert.ok(previous >= 3);
+  hang = true;
+  const run = active.analyze();
+  await settle();
+  assert.equal(signals.length, 3);
+  active.cancelAnalysis();
+  await run;
+  await settle();
+  assert.ok(signals.every((signal) => signal.aborted));
+  assert.equal(signals.length, 3, "no further request starts after Cancel");
+  assert.equal(lastModel().state, "ready");
+  assert.equal(lastModel().level1.length, previous);
+  assert.equal(lastModel().progress, undefined);
+  active.dispose();
+});
+
+test("Cancel on a first run leaves no review behind", async () => {
+  const active = controller(sectionedSource, async (request, signal) => {
+    if (request.chunk?.index === 0) return typoResponse;
+    return new Promise((_, reject) => signal.addEventListener("abort", () => reject(new Error("aborted"))));
+  });
+  const run = active.analyze();
+  await settle();
+  assert.equal(lastModel().level1.length, 1);
+  active.cancelAnalysis();
+  await run;
+  assert.equal(lastModel().state, "empty");
+  assert.deepEqual(lastModel().level1, []);
+  active.dispose();
+});
+
+test("an edit during a run aborts the remaining sections at once and reports that the document changed", async () => {
+  let source = sectionedSource;
+  let version = 1;
+  const document: any = { uri: { toString: () => "file:///big.md" }, fileName: "/big.md", languageId: "markdown", get version() { return version; }, getText: () => source };
+  const signals: AbortSignal[] = [];
+  posted.length = 0;
+  const active = new ReviewController(document, "extension" as any, async (_request, signal) => {
+    signals.push(signal);
+    return new Promise((_, reject) => signal.addEventListener("abort", () => reject(new Error("aborted"))));
+  }, () => {}, 2 as any);
+  const run = active.analyze();
+  await settle();
+  assert.equal(signals.length, 3);
+  source = `x${source}`;
+  version = 2;
+  active.onDocumentChanged({ document, contentChanges: [{ rangeOffset: 0, rangeLength: 0, text: "x" }] } as any);
+  assert.ok(signals.every((signal) => signal.aborted), "every pending request is aborted by the edit itself");
+  await run;
+  await settle();
+  assert.equal(signals.length, 3, "no further request starts after the edit");
+  assert.equal(active.status().state, "error");
+  assert.equal(active.status().error, "Document changed during analysis. Re-analyze to refresh suggestions.");
+  active.dispose();
+});
+
+test("a document that fits in one request is sent whole, as a single request without section data", async () => {
+  const requests: any[] = [];
+  const source = paragraphs(100);
+  assert.ok(source.length < 20_000);
+  const active = controller(source, async (request) => { requests.push(request); return typoResponse; });
+  await active.analyze();
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0].source, source);
+  assert.equal(requests[0].chunk, undefined);
+  assert.equal(lastModel().level1[0].id, "l1-1");
+  assert.equal(posted.some((message) => message.model?.progress), false);
+  active.dispose();
+});
+
+test("a document above 100k can be analysed, but one with a block too big for a request cannot", async () => {
+  const sections = controller(paragraphs(1_800), async () => typoResponse);
+  receive({ type: "ready" });
+  assert.equal(lastModel().canAnalyze, true);
+  assert.ok(lastModel().currentSource.length > REVIEW_LIMITS.source);
+  sections.dispose();
+  let called = false;
+  const blocked = controller(`Intro.\n\n${"a".repeat(REVIEW_LIMITS.source + 1)}\n`, async () => { called = true; return typoResponse; });
+  await blocked.analyze();
+  assert.equal(called, false);
+  assert.equal(blocked.status().error, "Document has a section too large to analyze.");
+  blocked.dispose();
 });

@@ -5,6 +5,8 @@ export interface AnalysisPromptInput {
   title: string;
   format: "markdown" | "plaintext";
   source: string;
+  /** Present when `source` is one section of a longer document (see chunks.ts). */
+  chunk?: { index: number; total: number; section?: string };
 }
 
 function sourceDelimiter(source: string): string {
@@ -28,7 +30,7 @@ export const exampleResponse = {
 } as const;
 
 /** Builds the single, provider-neutral instruction sent to every local AI CLI. */
-export function buildAnalysisPrompt({ title, format, source }: AnalysisPromptInput): string {
+export function buildAnalysisPrompt({ title, format, source, chunk }: AnalysisPromptInput): string {
   assertReviewSource(source);
   if (!title.trim() || title.length > REVIEW_LIMITS.title) {
     throw new ReviewValidationError(`title must be non-empty and at most ${REVIEW_LIMITS.title} characters`);
@@ -53,6 +55,11 @@ export function buildAnalysisPrompt({ title, format, source }: AnalysisPromptInp
     `Example for illustration only; it is not the document. For the text ${JSON.stringify(exampleText)} with the title "Example", the response is: ${JSON.stringify(exampleResponse)}`,
     `Document title (data): ${JSON.stringify(title)}`,
     `Document format (data): ${format}`,
+    // JSON-quoted so a heading containing a line break cannot start a new instruction line. The title stays the same in every part.
+    ...(chunk ? [
+      `Document part (data): ${JSON.stringify(`Part ${chunk.index + 1} of ${chunk.total}${chunk.section ? ` · Section: ${chunk.section}` : ""}`)}`,
+      "The source is one part of a longer document that is reviewed part by part: review only this part, and do not treat its beginning or end as the start or end of the document.",
+    ] : []),
     "For Markdown, non-prose syntax has been replaced with spaces while preserving source length and line breaks. Skip Level 2 for any sentence that contains a masked region; Level 1 may still anchor inside its surrounding prose.",
     `<<<${delimiter}_BEGIN>>>`,
     prose,
