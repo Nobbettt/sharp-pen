@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import { ProcessRunnerError } from "../src/ai/processRunner";
+import { straddlingComplexChunkDocument } from "./review/straddlingDocument";
 
 const Module = require("node:module") as { _load: (...args: any[]) => unknown };
 const load = Module._load;
@@ -1564,7 +1565,8 @@ for (const [count, sections] of [[2_600, 16], [8_300, 50]]) {
 }
 
 test("one too-complex section among several is reported as failed while the other sections' suggestions are published", async () => {
-  const source = `${paragraphs(650)}${"*abcdefgh* \n".repeat(2_300)}\n${paragraphs(650)}`; // above the request limit
+  // Every parse window of this passes the check, but one section holds the delimiters of two windows.
+  const source = straddlingComplexChunkDocument("", "", "Ordinary teh paragraph of plain.\n\n");
   const active = controller(source, async () => typoResponse);
   await active.analyze();
   const model = lastModel();
@@ -1584,5 +1586,34 @@ test("a document up to the request limit that starts with a BOM is analysed when
   assert.equal(lastModel().state, "ready");
   assert.equal(lastModel().error, undefined);
   assert.ok(requests.length >= 1);
+  active.dispose();
+});
+
+// ---- A Markdown document above the request limit with a span that cannot be parsed (amendment 3) ----
+
+const unsegmentableFence = () => `\`\`\`\n${"*abcdefgh* \n".repeat(2_300)}${"inside code\n\n".repeat(300)}teh UNIQUE\n\`\`\`\n\n${paragraphs(1_000)}`;
+const slowGrowth = () => `${"a".repeat(70_000)}${"*abcdefgh* ".repeat(2_100)}\n\n${"Plain paragraph.\n\n".repeat(1_200)}`;
+
+for (const [name, build] of [["a fence the parser cannot read", unsegmentableFence], ["a first block whose window is too complex while it grows", slowGrowth]] as const) {
+  test(`${name} makes the whole run fail with the too-large-or-complex message and no request`, async () => {
+    const source = build();
+    assert.ok(source.length > REVIEW_LIMITS.source && source.length <= REVIEW_LIMITS.document);
+    const requests: string[] = [];
+    const active = controller(source, countingRunner(requests));
+    await active.analyze();
+    assert.equal(requests.length, 0);
+    assert.equal(lastModel().error.message, "Document is too large or complex to analyze.");
+    assert.equal(lastModel().level1.length, 0);
+    active.dispose();
+  });
+}
+
+test("a single parsed block above the request limit still says the section is too large", async () => {
+  const source = `${"word ".repeat(21_000)}\n\n${paragraphs(10)}`;
+  const requests: string[] = [];
+  const active = controller(source, countingRunner(requests));
+  await active.analyze();
+  assert.equal(requests.length, 0);
+  assert.equal(lastModel().error.message, "Document has a section too large to analyze.");
   active.dispose();
 });

@@ -1,5 +1,5 @@
 import {
-  excludedRangesFromTree, frontMatterRange, markdownComplexityMessage, markdownExcludedRanges, markdownTooComplex, parseGfmMarkdown,
+  excludedRangesFromTree, frontMatterRange, markdownExcludedRanges, markdownTooComplex, parseGfmMarkdown,
   ReviewValidationError, REVIEW_LIMITS, type OffsetRange,
 } from "./validate";
 
@@ -14,8 +14,6 @@ export interface Chunk {
   end: number;
   /** Markdown only: the headings above the chunk's first line, e.g. "Install › macOS". */
   section?: string;
-  /** Part of the chunk could not be parsed; it is reported as a failed section instead of being sent. */
-  unreadable?: boolean;
 }
 
 /** A top-level block, as far as it matters here: where it starts and how good a place that is to split. */
@@ -24,8 +22,6 @@ interface Block {
   /** A heading beats a rule beats a paragraph break; 0 for the first block. */
   score: number;
   heading?: { level: number; text: string };
-  /** The span from here to the next block could not be read (too complex to parse), so it is never sent. */
-  unreadable?: boolean;
 }
 
 /** Everything the document-level helpers need, computed in one pass and reused after small edits. */
@@ -76,23 +72,17 @@ function mergeRanges(ranges: OffsetRange[]): OffsetRange[] {
   return merged;
 }
 
-/**
- * A window too complex to parse has no known block boundaries. Its lines (up to the last full one) become one
- * block that is reported as a failed section and left out of the suggestions; the run goes on after it.
- * A document within the request limit never gets here, so the span is at most REVIEW_LIMITS.source + 1 long.
- */
-function unreadableWindow(source: string, pos: number, end: number): Window {
-  if (end - pos > REVIEW_LIMITS.source) throw new ReviewValidationError(sectionTooLargeMessage);
-  const lineEnd = end >= source.length ? source.length : source.lastIndexOf("\n", end - 1) + 1;
-  const next = lineEnd > pos ? lineEnd : end;
-  return { blocks: [{ start: pos, score: pos === 0 ? 0 : BREAK_SCORE, unreadable: true }], ranges: [{ start: pos, end: next }], next };
-}
+/** Why a document above the request limit has no safe segmentation; the same message as main's oversized or complex failure. */
+export const unsegmentableMessage = "Document is too large or complex to analyze.";
 
 /**
  * Parses about `size` characters from `pos`, which is a known top-level block start, with the same parser
  * and GFM setup as the exclusions. The last block of a window may be cut off by the window's end, so it is
  * not confirmed: the next window starts there. A block that fills the whole window makes the window grow,
  * up to the request limit, above which the block is too big to analyse.
+ *
+ * A window that cannot be parsed (too complex for the parser guard, or the parser throws) leaves no known
+ * block boundary in its span, and nothing is guessed there: the whole document has no safe segmentation.
  */
 function scanWindow(source: string, pos: number, size: number): Window {
   const bom = pos === 0 && source.charCodeAt(0) === 0xfeff ? 1 : 0;
@@ -108,7 +98,7 @@ function scanWindow(source: string, pos: number, size: number): Window {
     else {
       try { tree = parseGfmMarkdown(text) as MdNode; } catch { tree = undefined; }
     }
-    if (!tree) return unreadableWindow(source, pos, end);
+    if (!tree) throw new ReviewValidationError(unsegmentableMessage);
     const atEnd = end >= source.length;
     const found: Array<{ start: number; node: MdNode }> = [];
     for (const node of tree.children ?? []) {
@@ -428,8 +418,7 @@ function chunksFrom(source: string, format: "markdown" | "plaintext", blocks: Bl
       stack.push(heading);
     }
     const section = format === "markdown" ? sectionLabel(stack) : undefined;
-    const unreadable = blocks.some((block) => block.unreadable && block.start >= start && block.start < end);
-    chunks.push({ start, end, ...(section ? { section } : {}), ...(unreadable ? { unreadable } : {}) });
+    chunks.push({ start, end, ...(section ? { section } : {}) });
     start = end;
   }
   return chunks;
@@ -480,12 +469,11 @@ export async function chunkDocumentAsync(source: string, format: "markdown" | "p
 
 /**
  * The top-level blocks of a Markdown document above the request limit as separately parseable slices, or
- * undefined when it has a block too big or too complex to read. Each block is at most REVIEW_LIMITS.source.
+ * undefined when it has no safe segmentation (a window that cannot be parsed, or a block too big). Each block is at most REVIEW_LIMITS.source.
  */
 export function documentBlockSlices(source: string): Array<{ start: number; text: string }> | undefined {
   let state: DocState;
   try { state = documentState(source); } catch { return undefined; }
-  if (state.blocks.some((block) => block.unreadable)) return undefined;
   return state.blocks.map((block, index) => ({ start: block.start, text: source.slice(block.start, state.blocks[index + 1]?.start ?? source.length) }));
 }
 

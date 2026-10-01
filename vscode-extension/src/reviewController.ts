@@ -296,7 +296,6 @@ export class ReviewController implements vscode.Disposable {
               const chunk = chunks![index];
               const text = snapshot.source.slice(chunk.start, chunk.end);
               try {
-                if (chunk.unreadable) throw new ReviewValidationError(markdownComplexityMessage);
                 const request: AnalysisRequest = total > 1
                   ? { ...snapshot, source: text, chunk: { index, total, ...(chunk.section ? { section: chunk.section } : {}) } }
                   : snapshot;

@@ -2,10 +2,12 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { CHUNK_TARGET, chunkDocument, quickAnalysisProblem, documentBlockSlices, documentCacheStats, definitionScanStats, documentExcludedRanges, parseStats, resetDocumentCache } from "../../src/review/chunks";
+import { straddlingComplexChunkDocument } from "./straddlingDocument";
 import { prepareApply } from "../../src/review/edits";
 import { markdownFences } from "../../src/review/fences";
 import { markdownTasks } from "../../src/review/tasks";
-import { createReview } from "../../src/review/validate";
+import { reconcileSourceChanges } from "../../src/review/reconcile";
+import { createReview, validateAndResolve } from "../../src/review/validate";
 import { markdownExcludedRanges, markdownTooComplex, parseGfmMarkdown, REVIEW_LIMITS } from "../../src/review/validate";
 
 /** A small seeded generator, so a failing document can be rebuilt from its seed. */
@@ -401,7 +403,8 @@ test("a document above the request limit that passes the typing check is never r
   assert.doesNotThrow(() => chunkDocument(source, "markdown"));
   // Dense enough that one block of this size could not be read: the typing check has to say so up front.
   const tooDense = `${("*abcdefgh*" + " ".repeat(19) + "\n").repeat(3_000)}\n${"Ordinary paragraph of plain prose.\n\n".repeat(900)}`;
-  if (quickAnalysisProblem(tooDense, "markdown") === undefined) assert.doesNotThrow(() => chunkDocument(tooDense, "markdown"));
+  // A window of it cannot be parsed, so there is no safe segmentation (amendment 3): the run fails as a whole.
+  if (quickAnalysisProblem(tooDense, "markdown") === undefined) assert.throws(() => chunkDocument(tooDense, "markdown"), /too large or complex/);
 });
 
 const definitionVariants: Array<[string, string, string]> = [
@@ -488,3 +491,47 @@ for (const labelLength of [999, 1000]) {
     assert.deepEqual(prepared.edits, []);
   });
 }
+
+// ---- Amendment 3: a window that cannot be parsed leaves the document with no safe segmentation ----
+
+const fenceUnparseable = () => `\`\`\`\n${"*abcdefgh* \n".repeat(2_300)}${"inside code\n\n".repeat(300)}teh UNIQUE\n\`\`\`\n\n${"Ordinary paragraph of plain prose.\n\n".repeat(2_400)}`;
+const growthComplex = () => `${"a".repeat(70_000)}${"*abcdefgh* ".repeat(2_100)}\n\n${"Plain paragraph.\n\n".repeat(1_200)}`;
+
+for (const [name, build] of [["a fence", fenceUnparseable], ["a growing window", growthComplex]] as const) {
+  test(`a document with an unparseable window (${name}) fails to chunk with the too-large-or-complex message`, () => {
+    resetDocumentCache();
+    const source = build();
+    assert.ok(source.length > REVIEW_LIMITS.source);
+    assert.throws(() => chunkDocument(source, "markdown"), (error: unknown) => error instanceof Error && error.message === "Document is too large or complex to analyze.");
+  });
+
+  test(`a document with an unparseable window (${name}) is excluded as a whole, so nothing in it is valid, kept or applied`, () => {
+    resetDocumentCache();
+    const source = build();
+    assert.deepEqual(documentExcludedRanges(source), [{ start: 0, end: source.length }]);
+    const at = source.indexOf("teh UNIQUE") >= 0 ? source.indexOf("teh UNIQUE") : source.lastIndexOf("Plain");
+    const typo = { id: "t", level: 1 as const, start: at, end: at + 3, from: source.slice(at, at + 3), options: ["the"], note: "Typo", status: "active" as const };
+    assert.throws(() => validateAndResolve(source, { title: "T", level1: [{ from: typo.from, occurrence: 1, options: ["the"], note: "Typo" }], level2: [] }, "markdown", "T"));
+    const review = createReview(source, { documentVersion: 1, format: "markdown" }, { title: "T", level1: [typo], level2: [], skipped: 0 });
+    assert.equal(reconcileSourceChanges(review, {}, [], source, 1).review.level1[0].status, "invalidated", "reconcile must not keep a suggestion in an unsegmentable document");
+    const prepared = prepareApply({ ...review, level1: [typo] }, { t: { option: 0 } }, source, 1);
+    assert.deepEqual(prepared.edits, []);
+  });
+
+  test(`tasks and fences are empty for a document with an unparseable window (${name})`, () => {
+    resetDocumentCache();
+    const source = `- [ ] task\n\n\`\`\`js\nx\n\`\`\`\n\n${build()}`;
+    assert.deepEqual(markdownTasks(source), []);
+    assert.deepEqual(markdownFences(source), []);
+  });
+}
+
+test("a too-complex chunk of a segmentable document does not disable tasks or fences on either side of it", () => {
+  resetDocumentCache();
+  const source = straddlingComplexChunkDocument("- [ ] before\n\n```js\nconst a = 1;\n```\n\n", "- [ ] after\n\n```js\nconst b = 2;\n```\n");
+  const chunks = chunkDocument(source, "markdown");
+  assert.ok(source.length > REVIEW_LIMITS.source);
+  assert.equal(chunks.filter((chunk) => markdownTooComplex(source.slice(chunk.start, chunk.end))).length, 1);
+  assert.equal(markdownTasks(source).length, 2);
+  assert.equal(markdownFences(source).length, 2);
+});
