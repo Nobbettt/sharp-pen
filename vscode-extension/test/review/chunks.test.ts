@@ -1,0 +1,200 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+import fromMarkdown = require("mdast-util-from-markdown");
+
+import { CHUNK_TARGET, chunkDocument, documentExcludedRanges, stitchedExcludedRanges } from "../../src/review/chunks";
+import { markdownExcludedRanges, REVIEW_LIMITS } from "../../src/review/validate";
+
+/** A small seeded generator, so a failing document can be rebuilt from its seed. */
+function random(seed: number): () => number {
+  let state = seed;
+  return () => { state = (state * 1664525 + 1013904223) >>> 0; return state / 2 ** 32; };
+}
+
+const sentence = "The quick brown fox jumps over the lazy dog and keeps running.";
+const fragments: Array<(n: number) => string> = [
+  (n) => `# Title ${n}\n\n${sentence}\n`,
+  (n) => `## Part ${n}\n\n${sentence} ${sentence}\n`,
+  (n) => `${sentence}\n${sentence}\n`,
+  () => "```js\nconst a = 1;\n\n# not a heading\n\n---\n\nconst b = 2;\n```\n",
+  () => "~~~\nline\n\n\n## still code\n~~~\n",
+  () => "- item one\n\n- item two\n\n  continued paragraph in item\n\n  ```\n  code\n\n  more\n  ```\n- item three\n",
+  () => "1. first\n\n2. second\n\n   nested text\n",
+  () => "| a | b |\n|---|---|\n| 1 | 2 |\n| 3 | 4 |\n",
+  () => "<!-- a comment\n\n# not a heading either\n\n-->\n",
+  () => "<div>\n\n</div>\n",
+  () => "<pre>\nkeep\n\n# literal\n</pre>\n",
+  () => "> quoted line\n> another\n>\n> still quoted\n",
+  () => "***\n",
+  () => "Setext heading\n==============\n\nBody text.\n",
+  () => "    indented code\n\n    more indented code\n",
+];
+
+function generated(seed: number, size: number, front = false): string {
+  const next = random(seed);
+  let source = front ? "---\ntitle: x\n\nauthor: y\n---\n" : "";
+  for (let n = 0; source.length < size; n += 1) source += `${fragments[Math.floor(next() * fragments.length)](n)}${"\n".repeat(1 + Math.floor(next() * 2))}`;
+  return source;
+}
+
+/** Offsets where a top-level mdast block begins, with its leading indentation skipped. */
+function topLevelStarts(source: string): Set<number> {
+  const bom = source.charCodeAt(0) === 0xfeff ? 1 : 0;
+  const tree = fromMarkdown(source.slice(bom)) as { children: Array<{ position: { start: { offset: number } } }> };
+  return new Set(tree.children.map((child) => child.position.start.offset + bom));
+}
+
+function assertCoversWithoutGaps(source: string, chunks: Array<{ start: number; end: number }>): void {
+  assert.equal(chunks[0].start, 0);
+  assert.equal(chunks.at(-1)!.end, source.length);
+  for (let index = 1; index < chunks.length; index += 1) assert.equal(chunks[index].start, chunks[index - 1].end);
+  for (const chunk of chunks) assert.ok(chunk.end > chunk.start);
+}
+
+test("every split of a generated Markdown document is the start of a top-level block", () => {
+  for (let seed = 1; seed <= 12; seed += 1) {
+    const source = generated(seed, 60_000, seed % 3 === 0);
+    const chunks = chunkDocument(source, "markdown", 1_500);
+    assert.ok(chunks.length > 10, `seed ${seed} produced ${chunks.length} chunks`);
+    assertCoversWithoutGaps(source, chunks);
+    const starts = topLevelStarts(source);
+    for (const chunk of chunks.slice(1)) {
+      const indent = /^ */.exec(source.slice(chunk.start))![0].length;
+      assert.ok(starts.has(chunk.start + indent), `seed ${seed}: split at ${chunk.start} is inside a block: ${JSON.stringify(source.slice(chunk.start - 30, chunk.start + 30))}`);
+    }
+  }
+});
+
+test("a fence, HTML block or front matter containing blank lines and heading-like lines is never split", () => {
+  const fence = `\`\`\`\n${("code line\n\n# not a heading\n\n").repeat(200)}\`\`\`\n`;
+  const html = `<!--\n${("note\n\n# not a heading\n\n").repeat(200)}-->\n`;
+  const front = `---\n${("key: value\n\n").repeat(200)}---\n`;
+  for (const [block, name] of [[fence, "fence"], [html, "html"], [front, "front matter"]] as const) {
+    const source = `${name === "front matter" ? "" : "Intro.\n\n"}${block}\n${name === "front matter" ? "Intro.\n\n" : ""}Outro.\n`;
+    const begin = source.indexOf(block);
+    for (const chunk of chunkDocument(source, "markdown", 800)) {
+      assert.ok(!(chunk.start > begin && chunk.start < begin + block.length - 1), `${name}: split at ${chunk.start} is inside the block`);
+    }
+  }
+});
+
+test("a list with blank lines between its items is never split", () => {
+  const list = Array.from({ length: 300 }, (_, n) => `- item ${n}\n\n  more of item ${n}\n`).join("\n");
+  const source = `Intro paragraph.\n\n${list}\n\nOutro paragraph.\n`;
+  const begin = source.indexOf("- item 0");
+  const end = begin + list.length;
+  for (const chunk of chunkDocument(source, "markdown", 800)) assert.ok(!(chunk.start > begin && chunk.start < end), `split at ${chunk.start} is inside the list`);
+});
+
+test("a split prefers the strongest heading over an ordinary paragraph break", () => {
+  const paragraph = (n: number) => `Paragraph ${n} ${"x".repeat(80)}\n\n`;
+  // The first 14 paragraphs plus the H1 fit in one chunk; the H1 is at an offset where a paragraph break also fits.
+  const before = Array.from({ length: 14 }, (_, n) => paragraph(n)).join("");
+  const source = `${before}# Big heading\n\n${Array.from({ length: 14 }, (_, n) => paragraph(n + 20)).join("")}`;
+  const chunks = chunkDocument(source, "markdown", Math.ceil(source.length * 0.6));
+  assert.equal(chunks.length, 2);
+  assert.equal(chunks[1].start, before.length);
+});
+
+test("it uses as few chunks as the limit allows", () => {
+  const source = Array.from({ length: 450 }, (_, n) => `Paragraph ${n} ${"w".repeat(40)}\n\n`).join("");
+  const chunks = chunkDocument(source, "markdown");
+  assert.equal(chunks.length, Math.ceil(source.length / CHUNK_TARGET));
+  for (const chunk of chunks) assert.ok(chunk.end - chunk.start <= CHUNK_TARGET);
+});
+
+test("it avoids a tiny last chunk even when a heading sits just before the end", () => {
+  const body = Array.from({ length: 200 }, (_, n) => `Paragraph ${n} ${"w".repeat(90)}\n\n`).join("");
+  const source = `${body.slice(0, CHUNK_TARGET - 20)}\n\n# Late heading\n\n${body.slice(0, 200)}${"\n\n"}${body.slice(0, 120)}`;
+  const chunks = chunkDocument(source, "markdown");
+  assert.equal(chunks.length, 2);
+  for (const chunk of chunks) assert.ok(chunk.end - chunk.start > CHUNK_TARGET / 4, `chunk of ${chunk.end - chunk.start} characters`);
+});
+
+test("a section larger than the target is split between its paragraphs", () => {
+  const section = `# Everything\n\n${Array.from({ length: 700 }, (_, n) => `Paragraph ${n} ${"s".repeat(60)}\n\n`).join("")}`;
+  const chunks = chunkDocument(section, "markdown");
+  assert.ok(chunks.length >= 3);
+  assertCoversWithoutGaps(section, chunks);
+});
+
+test("a single block up to the request limit becomes its own chunk, and a bigger one fails", () => {
+  const big = "a".repeat(30_000);
+  const source = `First.\n\n${big}\n\nLast.\n`;
+  const chunks = chunkDocument(source, "markdown");
+  assert.ok(chunks.some((chunk) => chunk.end - chunk.start >= big.length));
+  for (const chunk of chunks) assert.ok(chunk.end - chunk.start <= REVIEW_LIMITS.source);
+  assert.throws(() => chunkDocument(`First.\n\n${"a".repeat(REVIEW_LIMITS.source + 1)}\n`, "markdown"), /Document has a section too large to analyze\./);
+});
+
+test("plain text splits only at blank lines and prefers a longer run of them", () => {
+  const paragraph = (n: number) => `Line ${n} ${"p".repeat(60)}\nsecond line ${n}`;
+  const parts = Array.from({ length: 30 }, (_, n) => paragraph(n));
+  const source = parts.map((part, n) => (n === 14 ? `${part}\n\n\n\n` : `${part}\n\n`)).join("");
+  const chunks = chunkDocument(source, "plaintext", Math.ceil(source.length * 0.6));
+  assert.equal(chunks.length, 2);
+  assert.equal(chunks[1].start, source.indexOf("Line 15"));
+  for (const chunk of chunkDocument(source, "plaintext", 300)) {
+    assert.ok(chunk.start === 0 || /\n\n$/.test(source.slice(0, chunk.start)), `split at ${chunk.start} is not after a blank line`);
+  }
+});
+
+test("chunks cover a document with a BOM and CRLF line endings with no gap or overlap", () => {
+  const source = `\uFEFF${generated(7, 20_000).replace(/\n/g, "\r\n")}`;
+  const chunks = chunkDocument(source, "markdown", 1_200);
+  assert.ok(chunks.length > 5);
+  assertCoversWithoutGaps(source, chunks);
+  const starts = topLevelStarts(source);
+  for (const chunk of chunks.slice(1)) assert.ok(starts.has(chunk.start + /^ */.exec(source.slice(chunk.start))![0].length));
+});
+
+test("a document that fits in one request is a single chunk without a section label", () => {
+  const source = `# Title\n\n${sentence}\n`;
+  assert.deepEqual(chunkDocument(source, "markdown"), [{ start: 0, end: source.length }]);
+});
+
+test("each chunk is labelled with the headings above where it starts", () => {
+  const filler = Array.from({ length: 20 }, () => `${sentence}\n\n`).join("");
+  const source = `# Install\n\n${filler}## macOS\n\n${filler}${filler}`;
+  const chunks = chunkDocument(source, "markdown", 700);
+  assert.equal(chunks[0].section, "Install");
+  assert.equal(chunks.at(-1)!.section, "Install › macOS");
+});
+
+test("splitting a million characters is fast", () => {
+  const source = generated(3, 1_000_000);
+  const started = performance.now();
+  const chunks = chunkDocument(source, "markdown");
+  const elapsed = performance.now() - started;
+  assert.ok(chunks.length >= 50 && chunks.length <= 70, `${chunks.length} chunks`);
+  assert.ok(elapsed < 2_000, `chunking took ${elapsed} ms`);
+});
+
+test("stitched exclusions match a whole-document parse on documents that fit in one request", () => {
+  const source = generated(5, 60_000, true);
+  assert.deepEqual(stitchedExcludedRanges(source), markdownExcludedRanges(source));
+});
+
+test("excluded ranges of a 300k document keep prose open and exclude code", () => {
+  const source = generated(9, 300_000);
+  const ranges = documentExcludedRanges(source);
+  const touches = (index: number) => ranges.some((range) => range.start <= index && index < range.end);
+  assert.equal(touches(source.indexOf("The quick brown fox")), false);
+  assert.equal(touches(source.indexOf("const a = 1;")), true);
+  assert.equal(touches(source.lastIndexOf("# not a heading")), true);
+});
+
+test("excluded ranges of a million characters cost far less than a whole-document parse, and an edit reuses the unchanged blocks", () => {
+  const source = generated(4, 990_000);
+  const started = performance.now();
+  documentExcludedRanges(source);
+  const first = performance.now() - started;
+  assert.ok(first < 5_000, `first pass took ${first} ms (a whole-document parse takes about 7000 ms)`);
+  const at = Math.floor(source.length / 2);
+  const edited = `${source.slice(0, at)}x${source.slice(at)}`;
+  const restarted = performance.now();
+  const ranges = documentExcludedRanges(edited);
+  const second = performance.now() - restarted;
+  assert.ok(second < first / 2 && second < 1_000, `edit pass took ${second} ms, first ${first} ms`);
+  assert.ok(ranges.length > 0);
+});

@@ -1,4 +1,6 @@
+import { mapDocumentSegments } from "./chunks";
 import { parseMarkdownTree, type MarkdownTree } from "./markdownTree";
+import { REVIEW_LIMITS } from "./validate";
 
 export interface CodeFence {
   index: number;
@@ -17,6 +19,7 @@ interface Node {
 
 /** Collects only source-backed backtick/tilde fences; mdast's indented code has no opening fence here. */
 export function markdownFences(source: string, tree: MarkdownTree | undefined = parseMarkdownTree(source)): CodeFence[] {
+  if (source.length > REVIEW_LIMITS.source) return largeDocumentFences(source);
   if (tree === undefined) return [];
   const bom = source.charCodeAt(0) === 0xfeff ? 1 : 0;
   const found: Omit<CodeFence, "index">[] = [];
@@ -42,4 +45,15 @@ export function markdownFences(source: string, tree: MarkdownTree | undefined = 
   };
   visit(tree);
   return found.sort((a, b) => a.languageStart - b.languageStart).map((fence, index) => ({ index, ...fence }));
+}
+
+const segmentFences = new Map<string, CodeFence[]>();
+
+/** Above the per-request limit: fences per block-aligned segment, re-indexed across the whole document. */
+function largeDocumentFences(source: string): CodeFence[] {
+  return mapDocumentSegments(source, segmentFences, (text) => markdownFences(text))
+    .flatMap(({ start, value }) => value.map((fence) => ({
+      ...fence, languageStart: fence.languageStart + start, languageEnd: fence.languageEnd + start, insertionOffset: fence.insertionOffset + start,
+    })))
+    .map((fence, index) => ({ ...fence, index }));
 }

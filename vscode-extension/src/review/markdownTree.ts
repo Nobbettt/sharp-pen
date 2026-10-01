@@ -1,5 +1,5 @@
 import fromMarkdown = require("mdast-util-from-markdown");
-import { markdownTooComplex } from "./validate";
+import { markdownTooComplex, REVIEW_LIMITS } from "./validate";
 
 /** A parsed mdast tree, or undefined when the source is too complex to parse or fails to parse. */
 export type MarkdownTree = unknown;
@@ -9,6 +9,9 @@ export type MarkdownTree = unknown;
  * offsets exclude a leading BOM, which each scanner adds back.
  */
 export function parseMarkdownTree(source: string): MarkdownTree | undefined {
+  // Above the per-request limit a whole-document parse takes seconds; tasks and fences scan block by
+  // block instead (see chunks.ts) and ignore this placeholder, which only keeps them from reading "undefined" as "unparseable".
+  if (source.length > REVIEW_LIMITS.source) return { type: "root", children: [] };
   if (markdownTooComplex(source)) return undefined;
   try { return fromMarkdown(source.slice(source.charCodeAt(0) === 0xfeff ? 1 : 0)); } catch { return undefined; }
 }

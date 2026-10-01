@@ -1,5 +1,6 @@
 import { type Decision, type Decisions, type EffectiveEdit, type Review, type Suggestion } from "./types";
-import { markdownExcludedRanges, rangeTouchesExcluded, rangesOverlap } from "./validate";
+import { documentExcludedRanges } from "./chunks";
+import { rangeTouchesExcluded, rangesOverlap } from "./validate";
 
 function accepted(suggestion: Suggestion, decisions: Decisions): number | undefined {
   const decision = decisions[suggestion.id];
@@ -68,7 +69,7 @@ export function prepareApply(
   }
 
   const invalid = new Set<string>();
-  const excluded = review.format === "markdown" ? markdownExcludedRanges(liveSource) : [];
+  const excluded = review.format === "markdown" ? documentExcludedRanges(liveSource) : [];
   for (const suggestion of [...review.level1, ...review.level2]) {
     if (accepted(suggestion, decisions) !== undefined && (
       liveSource.slice(suggestion.start, suggestion.end) !== suggestion.from ||

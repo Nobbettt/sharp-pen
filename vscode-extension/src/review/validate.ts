@@ -27,7 +27,10 @@ const gfmMdastExtensions: any[] = [
 const literalUrlPattern = /\bhttps?:\/\/[^\s<>]+|\bwww\.[^\s<>]+/gi;
 
 export const REVIEW_LIMITS = {
+  /** The most one request may carry; a document above this is analysed in sections (see chunks.ts). */
   source: 100_000,
+  /** The most a whole document may hold and still be analysed. */
+  document: 1_000_000,
   title: 256,
   suggestionsPerLevel: 100,
   from: 10_000,

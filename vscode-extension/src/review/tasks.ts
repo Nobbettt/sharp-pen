@@ -1,4 +1,5 @@
-import { frontMatterRange } from "./validate";
+import { mapDocumentSegments } from "./chunks";
+import { frontMatterRange, REVIEW_LIMITS } from "./validate";
 import { parseMarkdownTree, type MarkdownTree } from "./markdownTree";
 
 export interface MarkdownTask {
@@ -16,6 +17,7 @@ interface Node {
 
 /** Finds only Markdown-it-compatible task markers that belong to parsed list items. */
 export function markdownTasks(source: string, tree: MarkdownTree | undefined = parseMarkdownTree(source)): MarkdownTask[] {
+  if (source.length > REVIEW_LIMITS.source) return largeDocumentTasks(source);
   if (tree === undefined) return [];
   const tasks: MarkdownTask[] = [];
   const bom = source.charCodeAt(0) === 0xfeff ? 1 : 0;
@@ -38,6 +40,14 @@ export function markdownTasks(source: string, tree: MarkdownTree | undefined = p
   };
   visit(tree);
   return tasks.sort((a, b) => a.offset - b.offset);
+}
+
+const segmentTasks = new Map<string, MarkdownTask[]>();
+
+/** Above the per-request limit: tasks per block-aligned segment, so an edit only re-parses its own segment. */
+function largeDocumentTasks(source: string): MarkdownTask[] {
+  return mapDocumentSegments(source, segmentTasks, (text) => markdownTasks(text))
+    .flatMap(({ start, value }) => value.map((task) => ({ ...task, offset: task.offset + start })));
 }
 
 export function matchesMarkdownTask(source: string, offset: number, checked: boolean): boolean {
