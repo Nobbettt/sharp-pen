@@ -1,4 +1,4 @@
-import { mapDocumentSegments } from "./chunks";
+import { documentBlockSlices } from "./chunks";
 import { parseMarkdownTree, type MarkdownTree } from "./markdownTree";
 import { REVIEW_LIMITS } from "./validate";
 
@@ -47,13 +47,26 @@ export function markdownFences(source: string, tree: MarkdownTree | undefined = 
   return found.sort((a, b) => a.languageStart - b.languageStart).map((fence, index) => ({ index, ...fence }));
 }
 
-const segmentFences = new Map<string, CodeFence[]>();
+let blockFences = new Map<string, CodeFence[]>();
+/** Only a block holding a fence marker is worth a parse. */
+const fenceMarker = /```|~~~/;
 
-/** Above the per-request limit: fences per block-aligned segment, re-indexed across the whole document. */
+/**
+ * Above the per-request limit: fences block by block (each at most REVIEW_LIMITS.source, so no recursion),
+ * re-indexed across the whole document. Only blocks of the current text are kept between calls.
+ */
 function largeDocumentFences(source: string): CodeFence[] {
-  return mapDocumentSegments(source, segmentFences, (text) => markdownFences(text))
-    .flatMap(({ start, value }) => value.map((fence) => ({
+  const blocks = documentBlockSlices(source);
+  if (!blocks) return [];
+  const used = new Map<string, CodeFence[]>();
+  const fences = blocks.flatMap(({ start, text }) => {
+    if (!fenceMarker.test(text)) return [];
+    const found = used.get(text) ?? blockFences.get(text) ?? markdownFences(text, parseMarkdownTree(text));
+    used.set(text, found);
+    return found.map((fence) => ({
       ...fence, languageStart: fence.languageStart + start, languageEnd: fence.languageEnd + start, insertionOffset: fence.insertionOffset + start,
-    })))
-    .map((fence, index) => ({ ...fence, index }));
+    }));
+  });
+  blockFences = used;
+  return fences.map((fence, index) => ({ ...fence, index }));
 }

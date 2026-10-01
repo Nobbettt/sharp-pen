@@ -8,8 +8,9 @@ import { markdownTasks, matchesMarkdownTask } from "./review/tasks";
 import { markdownFences } from "./review/fences";
 import { parseMarkdownTree } from "./review/markdownTree";
 import { installedLanguageIds } from "./review/languages";
+import type { Chunk } from "./review/chunks";
 import type { Decision, Decisions, Level, Review, ResolvedReview, Suggestion } from "./review/types";
-import { CHUNK_CONCURRENCY, chunkDocument } from "./review/chunks";
+import { CHUNK_CONCURRENCY, CHUNK_TARGET, chunkDocument, chunkDocumentAsync } from "./review/chunks";
 import { REVIEW_LIMITS, ReviewValidationError, createReview, frontMatterRange, markdownTooComplex, validateAndResolve } from "./review/validate";
 import { reviewWebviewHtml, type ReviewWebviewModel } from "./webview/reviewWebview";
 import type { PreviewTheme } from "./config";
@@ -29,6 +30,7 @@ export type AnalysisRunner = (request: AnalysisRequest, signal: AbortSignal) => 
 
 interface AnalysisJob {
   abort: AbortController;
+  format: "markdown" | "plaintext";
   previousState: ReviewWebviewModel["state"];
   previousError: ReviewWebviewModel["error"] | undefined;
   previousNotice: string | undefined;
@@ -55,25 +57,38 @@ interface ApplyJob {
 const tooLargeMessage = "Document is too large or complex to analyze.";
 let blockerCache: { source: string; format: string; message: string | undefined } | undefined;
 
+/** Whether any slice of about one section's size is too structurally complex (see validate.ts); linear, and needs no parse. */
+function anySliceTooComplex(source: string): boolean {
+  for (let start = 0; start < source.length;) {
+    const newline = source.indexOf("\n", start + CHUNK_TARGET);
+    const end = newline === -1 ? source.length : newline + 1;
+    if (markdownTooComplex(source.slice(start, end))) return true;
+    start = end;
+  }
+  return false;
+}
+
 /**
- * Why a document can't be analysed, or undefined when it can: too long, a block too big for one request,
- * or a section too structurally complex (see validate.ts). It runs on every typing state post, so the
- * answer for the same text is remembered and the check stays linear.
+ * Why a document can't be analysed, or undefined when it can. It runs on every typing state post, so the
+ * answer for the same text is remembered and the check stays linear: length, and for Markdown a complexity
+ * check per section-sized slice. A Markdown section too big for one request needs a parse to find, so that
+ * error surfaces when the analysis starts; plain text is split by a cheap scan and is checked here.
  */
 function analysisBlocker(source: string, format: "markdown" | "plaintext"): string | undefined {
   if (blockerCache && blockerCache.source === source && blockerCache.format === format) return blockerCache.message;
   let message: string | undefined;
   if (source.length > REVIEW_LIMITS.document) message = tooLargeMessage;
-  else {
-    try {
-      if (format === "markdown" && chunkDocument(source, format).some((chunk) => markdownTooComplex(source.slice(chunk.start, chunk.end)))) message = tooLargeMessage;
-    } catch (error) {
-      message = error instanceof ReviewValidationError ? error.message : tooLargeMessage;
-    }
+  else if (format === "markdown") {
+    if (anySliceTooComplex(source)) message = tooLargeMessage;
+  } else {
+    try { chunkDocument(source, format); } catch (error) { message = error instanceof ReviewValidationError ? error.message : tooLargeMessage; }
   }
   blockerCache = { source, format, message };
   return message;
 }
+
+/** The document can't be split into sections (one is too big for a request, or too complex to read). */
+class SectionError extends Error {}
 
 /** The text a section's failure is described with; raw CLI output never reaches it (see ProcessRunnerError). */
 const failureText = (error: unknown) => error instanceof ProcessRunnerError ? error.message : "Analysis failed.";
@@ -177,10 +192,13 @@ export class ReviewController implements vscode.Disposable {
    */
   retarget(document: vscode.TextDocument): void {
     const format = document.languageId === "markdown" ? "markdown" : "plaintext";
-    if (this.review && this.review.format !== format) {
+    if ((this.review && this.review.format !== format) || (this.analysis && this.analysis.format !== format)) {
+      // A run's Cancel restores the review shown before it, which belongs to the other format: its offsets were
+      // checked against the other format's exclusions, so Apply could write into Markdown syntax. Stop the run first.
+      this.cancelAnalysis();
       this.review = undefined;
       this.decisions = {};
-      if (this.state !== "analyzing") this.state = "empty";
+      this.state = "empty";
     }
     this.document = document;
     this.postState();
@@ -248,12 +266,9 @@ export class ReviewController implements vscode.Disposable {
     const snapshot = this.snapshot();
     const blocker = analysisBlocker(snapshot.source, snapshot.format);
     if (blocker) return this.fail(blocker);
-    const chunks = chunkDocument(snapshot.source, snapshot.format);
-    const total = chunks.length;
     const job: AnalysisJob = {
-      abort: new AbortController(), previousState: this.state, previousError: this.error, previousNotice: this.notice, previousTaskError: this.taskError,
+      abort: new AbortController(), format: snapshot.format, previousState: this.state, previousError: this.error, previousNotice: this.notice, previousTaskError: this.taskError,
       previousFenceError: this.fenceError, previousReview: this.review, previousDecisions: this.decisions, documentChanged: false, editAborted: false,
-      ...(total > 1 ? { progress: { done: 0, total } } : {}),
     };
     this.analysis = job;
     this.state = "analyzing";
@@ -271,6 +286,18 @@ export class ReviewController implements vscode.Disposable {
             else job.abort.abort();
           });
           const stopped = () => job.abort.signal.aborted || this.analysis !== job;
+          // Reading a million characters takes seconds; an edit or Cancel during it stops the run here.
+          let chunks: Chunk[] | undefined;
+          try {
+            chunks = await chunkDocumentAsync(snapshot.source, snapshot.format, stopped);
+          } catch (error) {
+            throw new SectionError(error instanceof ReviewValidationError ? error.message : tooLargeMessage);
+          }
+          const total = chunks?.length ?? 0;
+          if (total > 1) {
+            job.progress = { done: 0, total };
+            this.postState();
+          }
           const outcomes: Array<ResolvedReview | undefined> = new Array(total).fill(undefined);
           const failures: Array<{ index: number; error: unknown }> = [];
           let next = 0;
@@ -279,7 +306,7 @@ export class ReviewController implements vscode.Disposable {
           const worker = async (): Promise<void> => {
             while (!stopped() && next < total) {
               const index = next++;
-              const chunk = chunks[index];
+              const chunk = chunks![index];
               const text = snapshot.source.slice(chunk.start, chunk.end);
               try {
                 const request: AnalysisRequest = total > 1
@@ -287,7 +314,7 @@ export class ReviewController implements vscode.Disposable {
                   : snapshot;
                 const result = await this.runner!(request, job.abort.signal);
                 if (stopped()) return;
-                outcomes[index] = placeInDocument(validateAndResolve(text, result, snapshot.format, snapshot.title), chunk.start, total > 1 ? `c${index}-` : "");
+                outcomes[index] = placeInDocument(validateAndResolve(text, result, snapshot.format, snapshot.title, chunk.start === 0), chunk.start, total > 1 ? `c${index}-` : "");
               } catch (error) {
                 if (stopped()) return;
                 failures.push({ index, error });
@@ -315,7 +342,8 @@ export class ReviewController implements vscode.Disposable {
             return;
           }
           failures.sort((a, b) => a.index - b.index);
-          if (failures.length === total) throw failures[0].error;
+          // One request keeps its own failure handling; with several, every failure is counted and the run still ends ready.
+          if (failures.length === total && total === 1) throw failures[0].error;
           const discarded = Object.values(job.previousDecisions).filter((decision) => decision !== null).length;
           this.publish(snapshot, mergeSections(outcomes), discarded);
           if (failures.length) {
@@ -327,7 +355,9 @@ export class ReviewController implements vscode.Disposable {
       if (!job.abort.signal.aborted && this.analysis === job) {
         this.restorePrevious(job);
         this.state = this.review ? (job.documentChanged || job.previousState === "modified" ? "modified" : "ready") : "error";
-        this.error = error instanceof ProcessRunnerError
+        this.error = error instanceof SectionError
+          ? { message: error.message }
+          : error instanceof ProcessRunnerError
           ? { message: error.message, action: error.kind === "launch" ? "openSettings" : "analyze" }
           : { message: "Analysis failed. Try switching models or retrying.", action: "analyze" };
       }

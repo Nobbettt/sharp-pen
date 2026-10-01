@@ -1273,9 +1273,9 @@ test("progress is posted as each section finishes and is gone once the run ends"
   const active = controller(sectionedSource, async () => { await settle(); return typoResponse; });
   await active.analyze();
   const analyzing = posted.map((message) => message.model).filter((model) => model?.state === "analyzing");
-  const total = analyzing[0].progress.total;
+  const total = analyzing.find((model) => model.progress)!.progress.total;
   assert.ok(total >= 3);
-  const seen = new Set(analyzing.map((model) => model.progress.done));
+  const seen = new Set(analyzing.filter((model) => model.progress).map((model) => model.progress.done));
   for (let done = 0; done < total; done += 1) assert.ok(seen.has(done), `no state showed ${done} of ${total} sections done`);
   assert.equal(lastModel().progress, undefined);
   assert.ok(progressReports.some((report) => new RegExp(`1 of ${total}`).test(report.message)));
@@ -1330,12 +1330,59 @@ test("a failed section does not stop the others and is reported at the end", asy
   active.dispose();
 });
 
-test("when every section fails the run fails like a single request would", async () => {
+test("when every section of a multi-section run fails, it ends ready with the counted message and an analyze action", async () => {
   const active = controller(sectionedSource, async () => { throw new ProcessRunnerError("launch", "The AI client could not be started."); });
+  await active.analyze();
+  const total = posted.map((message) => message.model).find((model) => model?.progress)!.progress.total;
+  assert.equal(lastModel().state, "ready");
+  assert.equal(lastModel().error.message, `${total} of ${total} sections could not be analyzed: The AI client could not be started.`);
+  assert.equal(lastModel().error.action, "analyze");
+  active.dispose();
+});
+
+test("a single-request run that fails still reports the failure itself", async () => {
+  const active = controller("Short document.", async () => { throw new ProcessRunnerError("launch", "The AI client could not be started."); });
   await active.analyze();
   assert.equal(lastModel().state, "error");
   assert.equal(lastModel().error.message, "The AI client could not be started.");
   assert.equal(lastModel().error.action, "openSettings");
+  active.dispose();
+});
+
+test("a plain-text paragraph above the request limit blocks Analyze with the section message instead of throwing", async () => {
+  const document: any = {
+    uri: { toString: () => "file:///big.txt" }, fileName: "/big.txt", languageId: "plaintext", version: 1,
+    getText: () => `Intro.\n\n${"a".repeat(REVIEW_LIMITS.source + 1)}\n`,
+  };
+  let called = false;
+  const active = new ReviewController(document, "extension" as any, async () => { called = true; return typoResponse; }, () => {}, 2 as any);
+  receive({ type: "ready" });
+  assert.equal(lastModel().canAnalyze, false);
+  await active.analyze();
+  assert.equal(called, false);
+  assert.equal(active.status().error, "Document has a section too large to analyze.");
+  active.dispose();
+});
+
+test("switching plain text to Markdown while re-analyzing drops the old review, and Cancel cannot bring it back", async () => {
+  let hang = false;
+  const document: any = {
+    uri: { toString: () => "file:///notes.txt" }, fileName: "/notes.txt", languageId: "plaintext", version: 1, getText: () => "Teh here",
+  };
+  const active = new ReviewController(document, "extension" as any, async (_request, signal) => {
+    if (!hang) return { title: "Draft", level1: [{ from: "Teh", options: ["The"], note: "Spelling" }], level2: [] };
+    return new Promise((_, reject) => signal.addEventListener("abort", () => reject(new Error("aborted"))));
+  }, () => {}, 2 as any);
+  await active.analyze();
+  receive({ type: "choose", suggestionId: "l1-1", option: 0 });
+  hang = true;
+  const run = active.analyze();
+  await settle();
+  active.retarget({ ...document, languageId: "markdown" });
+  active.cancelAnalysis();
+  await run;
+  assert.equal(lastModel().hasReview, false);
+  assert.equal(active.stagedChoiceCount(), 0);
   active.dispose();
 });
 

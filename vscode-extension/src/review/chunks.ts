@@ -1,4 +1,7 @@
-import { frontMatterRange, markdownExcludedRanges, ReviewValidationError, REVIEW_LIMITS, type OffsetRange } from "./validate";
+import {
+  excludedRangesFromTree, frontMatterRange, markdownComplexityMessage, markdownExcludedRanges, markdownTooComplex, parseGfmMarkdown,
+  ReviewValidationError, REVIEW_LIMITS, type OffsetRange,
+} from "./validate";
 
 /** A document longer than this is analysed in sections; one that fits stays a single request. */
 export const CHUNK_TARGET = 20_000;
@@ -13,13 +16,22 @@ export interface Chunk {
   section?: string;
 }
 
-interface Heading { offset: number; level: number; text: string }
-interface Scan {
-  /** Where each top-level block starts, ascending, beginning with 0. */
-  starts: number[];
-  /** How good a place each start is to split: a heading beats a rule beats a paragraph break. 0 for the first. */
-  scores: number[];
-  headings: Heading[];
+/** A top-level block, as far as it matters here: where it starts and how good a place that is to split. */
+interface Block {
+  start: number;
+  /** A heading beats a rule beats a paragraph break; 0 for the first block. */
+  score: number;
+  heading?: { level: number; text: string };
+}
+
+/** Everything the document-level helpers need, computed in one pass and reused after small edits. */
+interface DocState {
+  source: string;
+  blocks: Block[];
+  /** Excluded ranges (see markdownExcludedRanges) for the whole document, ascending and non-overlapping. */
+  ranges: OffsetRange[];
+  /** Where the YAML front matter ends; an edit that moves it can change how the blocks around it parse. */
+  frontMatterEnd: number;
 }
 
 /** Split strength of a heading: H1 is the strongest, then down to H6; a rule and a paragraph break come after. */
@@ -28,188 +40,281 @@ const RULE_SCORE = 2;
 const BREAK_SCORE = 1;
 const MAX_SCORE = headingScore(1);
 
-const htmlBlockEnds: Array<[RegExp, RegExp]> = [
-  [/^<(?:script|pre|style|textarea)(?:[ \t>]|$)/i, /<\/(?:script|pre|style|textarea)>/i],
-  [/^<!--/, /-->/],
-  [/^<\?/, /\?>/],
-  [/^<![A-Za-z]/, />/],
-  [/^<!\[CDATA\[/, /\]\]>/],
-];
-const htmlBlockStartsUntilBlank = /^<\/?(?:address|article|aside|base|basefont|blockquote|body|caption|center|col|colgroup|dd|details|dialog|dir|div|dl|dt|fieldset|figcaption|figure|footer|form|frame|frameset|h[1-6]|head|header|hr|html|iframe|legend|li|link|main|menu|menuitem|nav|noframes|ol|optgroup|option|p|param|search|section|summary|table|tbody|td|tfoot|th|thead|title|tr|track|ul)(?:[ \t>]|\/>|$)/i;
-const lonelyTag = /^<\/?[A-Za-z][A-Za-z0-9-]*(?:\s[^>]*)?\/?>[ \t]*$/;
-const blankLine = /^[ \t]*$/;
-const atxHeading = /^ {0,3}(#{1,6})(?:[ \t]|$)/;
-const thematicBreak = /^ {0,3}([-*_])(?:[ \t]*\1){2,}[ \t]*$/;
-const listMarker = /^ {0,3}(?:[-+*]|\d{1,9}[.)])(?:[ \t]|$)/;
-const fenceOpening = /^( *)(`{3,}|~{3,})(.*)$/;
-const setextUnderline = /^ {0,3}(=+|-+)[ \t]*$/;
+/** How much text one parse covers when the whole document is read, and when only the area of an edit is re-read. */
+const WINDOW_FULL = 30_000;
+const WINDOW_EDIT = 4_000;
 
-let lastScan: { source: string; format: string; scan: Scan } | undefined;
+interface MdNode { type?: string; depth?: number; value?: string; children?: MdNode[]; position?: { start: { offset: number } } }
+
+function plainText(node: MdNode): string {
+  if (typeof node.value === "string") return node.value;
+  return (node.children ?? []).map(plainText).join("");
+}
+
+interface Window {
+  blocks: Block[];
+  /** Excluded ranges of the confirmed blocks, in document offsets. */
+  ranges: OffsetRange[];
+  /** Where the next window starts: the first block that was not confirmed, or the end of the source. */
+  next: number;
+}
+
+function mergeRanges(ranges: OffsetRange[]): OffsetRange[] {
+  const merged: OffsetRange[] = [];
+  for (const range of ranges) {
+    const previous = merged[merged.length - 1];
+    if (previous && range.start <= previous.end) previous.end = Math.max(previous.end, range.end);
+    else merged.push({ start: range.start, end: range.end });
+  }
+  return merged;
+}
 
 /**
- * One linear pass over the lines that finds where top-level blocks start, without parsing the whole
- * document (a whole-document mdast parse of 1,000,000 characters takes about 7 s). It is deliberately
- * conservative: when unsure whether a line continues a block it reports no boundary, because a missed
- * boundary only makes a chunk bigger while a false one would cut a fence, list or table in half.
+ * Parses about `size` characters from `pos`, which is a known top-level block start, with the same parser
+ * and GFM setup as the exclusions. The last block of a window may be cut off by the window's end, so it is
+ * not confirmed: the next window starts there. A block that fills the whole window makes the window grow,
+ * up to the request limit, above which the block is too big to analyse.
  */
-function scan(source: string, format: "markdown" | "plaintext"): Scan {
-  if (lastScan && lastScan.source === source && lastScan.format === format) return lastScan.scan;
-  const result: Scan = { starts: [0], scores: [0], headings: [] };
-  const markdown = format === "markdown";
-  const frontMatterEnd = markdown ? (frontMatterRange(source)?.end ?? 0) : 0;
-  let prevBlank = true;
-  let blankRun = 0;
-  let fence: { char: string; length: number } | undefined;
-  let html: RegExp | "blank" | undefined;
-  let inList = false;
-  const add = (start: number, score: number) => { if (start > 0) { result.starts.push(start); result.scores.push(score); } };
+function scanWindow(source: string, pos: number, size: number): Window {
+  const bom = pos === 0 && source.charCodeAt(0) === 0xfeff ? 1 : 0;
+  const frontMatterEnd = pos === 0 ? (frontMatterRange(source)?.end ?? 0) : 0;
+  let end = Math.min(source.length, pos + size);
+  for (;;) {
+    const text = source.slice(pos + bom, end);
+    if (markdownTooComplex(text)) throw new ReviewValidationError(markdownComplexityMessage);
+    let tree: MdNode;
+    try { tree = parseGfmMarkdown(text) as MdNode; } catch { throw new ReviewValidationError(markdownComplexityMessage); }
+    const atEnd = end >= source.length;
+    const found: Array<{ start: number; node: MdNode }> = [];
+    for (const node of tree.children ?? []) {
+      const offset = node.position?.start.offset;
+      if (offset === undefined) continue;
+      const absolute = pos + bom + offset;
+      // Leading spaces belong to the block's line; a chunk must start at the line, not after its indentation.
+      const start = found.length === 0 ? pos : Math.max(pos, source.lastIndexOf("\n", absolute - 1) + 1);
+      // Only the true document start can have front matter; blocks parsed inside it are not real blocks.
+      if (found.length > 0 && start < frontMatterEnd) continue;
+      found.push({ start, node });
+    }
+    if (!found.length) found.push({ start: pos, node: { type: "paragraph" } });
+    const confirmed = atEnd ? found : found.slice(0, -1);
+    if (!confirmed.length) {
+      if (end - pos > REVIEW_LIMITS.source) throw new ReviewValidationError(sectionTooLargeMessage);
+      end = Math.min(source.length, pos + Math.min(2 * (end - pos), REVIEW_LIMITS.source + 1));
+      continue;
+    }
+    const next = atEnd ? source.length : found[found.length - 1].start;
+    const blocks: Block[] = confirmed.map(({ start, node }) => ({
+      start,
+      score: start === 0 ? 0 : node.type === "heading" && node.depth ? headingScore(node.depth) : node.type === "thematicBreak" ? RULE_SCORE : BREAK_SCORE,
+      ...(node.type === "heading" && node.depth ? { heading: { level: node.depth, text: plainText(node).trim() } } : {}),
+    }));
 
+    const shift = pos + bom;
+    const ranges: OffsetRange[] = [];
+    if (bom) ranges.push({ start: pos, end: pos + bom });
+    for (const range of excludedRangesFromTree(text, tree, 0, false)) {
+      if (range.start + shift < next) ranges.push({ start: range.start + shift, end: Math.min(range.end + shift, next) });
+    }
+    if (frontMatterEnd) ranges.push({ start: 0, end: frontMatterEnd });
+    ranges.sort((a, b) => a.start - b.start || a.end - b.end);
+    return { blocks, ranges: mergeRanges(ranges), next };
+  }
+}
+
+/** Index of the last element whose `start` is at most `offset`, or -1. */
+function lastStartAtMost(items: ReadonlyArray<{ start: number }>, offset: number): number {
+  let low = 0;
+  let high = items.length;
+  while (low < high) {
+    const middle = (low + high) >> 1;
+    if (items[middle].start <= offset) low = middle + 1; else high = middle;
+  }
+  return low - 1;
+}
+
+/**
+ * Builds the block list and excluded ranges window by window, yielding between windows so a caller can
+ * hand control back. Given the state of a slightly different earlier text, it re-reads only from the block
+ * before the edit until a block start appears that the earlier text also had at the same distance from the
+ * end: from there the rest is identical, so it is taken over (shifted) instead of parsed again.
+ */
+function* buildState(source: string, previous?: DocState): Generator<void, DocState> {
+  if (previous?.source === source) return previous;
+  const frontMatterEnd = frontMatterRange(source)?.end ?? 0;
+  if (previous && previous.frontMatterEnd !== frontMatterEnd) previous = undefined;
+  let blocks: Block[] = [];
+  let ranges: OffsetRange[] = [];
+  let pos = 0;
+  let size = WINDOW_FULL;
+  let editEnd = 0;
+  let delta = 0;
+  if (previous) {
+    const old = previous.source;
+    const shortest = Math.min(old.length, source.length);
+    let prefix = 0;
+    while (prefix < shortest && old.charCodeAt(prefix) === source.charCodeAt(prefix)) prefix += 1;
+    let suffix = 0;
+    while (suffix < shortest - prefix && old.charCodeAt(old.length - 1 - suffix) === source.charCodeAt(source.length - 1 - suffix)) suffix += 1;
+    editEnd = source.length - suffix;
+    delta = source.length - old.length;
+    // One block back: the edit may have joined the block before it (a setext underline, a lazy continuation).
+    const restart = Math.max(0, lastStartAtMost(previous.blocks, prefix) - 1);
+    pos = previous.blocks[restart].start;
+    blocks = previous.blocks.slice(0, restart);
+    ranges = previous.ranges.filter((range) => range.start < pos).map((range) => ({ start: range.start, end: Math.min(range.end, pos) }));
+    size = WINDOW_EDIT;
+  }
+  for (;;) {
+    const window = scanWindow(source, pos, size);
+    const lineUp = previous && window.blocks.find((block) => {
+      const oldStart = block.start - delta;
+      return block.start >= editEnd && oldStart > 0 && previous!.blocks[lastStartAtMost(previous!.blocks, oldStart)].start === oldStart;
+    });
+    if (previous && lineUp) {
+      const oldStart = lineUp.start - delta;
+      blocks.push(...window.blocks.filter((block) => block.start < lineUp.start));
+      ranges.push(...window.ranges.filter((range) => range.start < lineUp.start).map((range) => ({ start: range.start, end: Math.min(range.end, lineUp.start) })));
+      for (let index = lastStartAtMost(previous.blocks, oldStart); index < previous.blocks.length; index += 1) {
+        blocks.push({ ...previous.blocks[index], start: previous.blocks[index].start + delta });
+      }
+      for (const range of previous.ranges) {
+        if (range.end > oldStart) ranges.push({ start: Math.max(range.start, oldStart) + delta, end: range.end + delta });
+      }
+      break;
+    }
+    blocks.push(...window.blocks);
+    ranges.push(...window.ranges);
+    if (window.next >= source.length) break;
+    pos = window.next;
+    yield;
+  }
+  return { source, blocks, ranges: mergeRanges(ranges), frontMatterEnd };
+}
+
+// Only the latest text is kept: the state of every earlier version of an edited document would add up to
+// hundreds of megabytes, and the next call needs just the previous one to find what an edit touched.
+let cached: DocState | undefined;
+
+/** For tests: forget the previous text, so the next call reads the whole document. */
+export function resetDocumentCache(): void {
+  cached = undefined;
+}
+
+function documentState(source: string): DocState {
+  const generator = buildState(source, cached);
+  for (;;) {
+    const step = generator.next();
+    if (step.done) { cached = step.value; return step.value; }
+  }
+}
+
+/** Where each blank-line-separated paragraph of a plain text starts; a longer run of blank lines is a stronger split. */
+function plainBlocks(source: string): Block[] {
+  const blocks: Block[] = [{ start: 0, score: 0 }];
+  let previousBlank = true;
+  let blankRun = 0;
   for (let lineStart = 0; lineStart < source.length;) {
     const newline = source.indexOf("\n", lineStart);
     const next = newline === -1 ? source.length : newline + 1;
-    let lineEnd = newline === -1 ? source.length : newline;
-    if (lineEnd > lineStart && source.charCodeAt(lineEnd - 1) === 13) lineEnd -= 1;
-    const text = source.slice(lineStart + (lineStart === 0 && source.charCodeAt(0) === 0xfeff ? 1 : 0), lineEnd);
-    const blank = blankLine.test(text);
-
-    if (lineStart < frontMatterEnd) {
-      prevBlank = false;
-    } else if (!markdown) {
-      if (blank) {
-        blankRun += 1;
-        prevBlank = true;
-      } else {
-        if (prevBlank) add(lineStart, Math.min(blankRun, MAX_SCORE));
-        prevBlank = false;
-        blankRun = 0;
-      }
-    } else if (fence) {
-      const closing = /^ *(`{3,}|~{3,})[ \t]*$/.exec(text);
-      if (closing && closing[1][0] === fence.char && closing[1].length >= fence.length) fence = undefined;
-      prevBlank = false;
-    } else if (html && (html === "blank" ? blank : html.test(text))) {
-      html = undefined;
-      prevBlank = blank;
-    } else if (html) {
-      prevBlank = false;
-    } else if (blank) {
-      prevBlank = true;
+    const blank = /^[ \t\r]*$/.test(source.slice(lineStart, newline === -1 ? source.length : newline));
+    if (blank) {
+      blankRun += 1;
+      previousBlank = true;
     } else {
-      let indent = 0;
-      for (const char of text) { if (char === " ") indent += 1; else if (char === "\t") indent += 4; else break; }
-      const heading = indent < 4 ? atxHeading.exec(text) : null;
-      // After a blank line, an indented line may continue an open list item or a code block, and a
-      // list goes on while its items or their content keep coming; only a flush-left line closes it.
-      const continuesList = inList && (indent > 0 || (prevBlank && listMarker.test(text)));
-      let boundary = false;
-      let score = BREAK_SCORE;
-      if (!continuesList && (heading || (prevBlank && indent < 4))) {
-        boundary = true;
-        if (heading) score = headingScore(heading[1].length);
-        else if (thematicBreak.test(text)) score = RULE_SCORE;
-        else {
-          const afterNext = source.indexOf("\n", next);
-          const underline = setextUnderline.exec(source.slice(next, afterNext === -1 ? source.length : afterNext).replace(/\r$/, ""));
-          if (underline) score = headingScore(underline[1][0] === "=" ? 1 : 2);
-        }
-        add(lineStart, score);
-        inList = false;
-      }
-      if (heading && boundary) {
-        result.headings.push({ offset: lineStart, level: heading[1].length, text: text.replace(/^ {0,3}#{1,6}[ \t]*/, "").replace(/[ \t]+#+[ \t]*$/, "").trim() });
-      } else if (boundary && score >= headingScore(2)) {
-        result.headings.push({ offset: lineStart, level: 9 - score, text: text.trim() });
-      }
-      if (listMarker.test(text) && !thematicBreak.test(text)) inList = true;
-      const opening = indent < 4 || inList ? fenceOpening.exec(text) : null;
-      if (opening && !(opening[2][0] === "`" && opening[3].includes("`"))) {
-        fence = { char: opening[2][0], length: opening[2].length };
-      } else if (indent < 4 || inList) {
-        const trimmed = text.trimStart();
-        for (const [start, end] of htmlBlockEnds) {
-          if (start.test(trimmed)) { if (!end.test(trimmed)) html = end; break; }
-        }
-        if (!html && (htmlBlockStartsUntilBlank.test(trimmed) || (prevBlank && lonelyTag.test(trimmed)))) html = "blank";
-      }
-      prevBlank = false;
+      if (previousBlank && lineStart > 0) blocks.push({ start: lineStart, score: Math.min(blankRun, MAX_SCORE) });
+      previousBlank = false;
+      blankRun = 0;
     }
     lineStart = next;
   }
-  lastScan = { source, format, scan: result };
-  return result;
+  return blocks;
 }
 
 /** "Install › macOS": the last three headings that are open where a chunk starts. */
-function sectionLabel(stack: readonly Heading[]): string | undefined {
+function sectionLabel(stack: ReadonlyArray<{ level: number; text: string }>): string | undefined {
   const parts = stack.slice(-3).map((heading) => (heading.text.length > 60 ? `${heading.text.slice(0, 59)}…` : heading.text)).filter(Boolean);
   return parts.length ? parts.join(" › ") : undefined;
 }
 
-/** Lexicographic cost of a packing: fewer requests, then fewer tiny chunks, then weaker split points, then uneven sizes. */
-type Cost = [number, number, number, number];
-const costLess = (a: Cost, b: Cost) => { for (let index = 0; index < 4; index += 1) if (a[index] !== b[index]) return a[index] < b[index]; return false; };
+/** Lexicographic cost of a packing beyond its number of requests: tiny chunks, weak split points, uneven sizes. */
+type Cost = [number, number, number];
+const costLess = (a: Cost, b: Cost) => { for (let index = 0; index < 3; index += 1) if (a[index] !== b[index]) return a[index] < b[index]; return false; };
 
 /**
- * Chooses the split offsets. The cost is a vector that adds up over chunks and is compared
- * lexicographically, which is exactly what makes the cheapest packing of a prefix reusable (dynamic programming).
- * A unit larger than `target` (one huge block) is still allowed as its own chunk.
+ * Chooses the split offsets. A chunk is feasible when it fits `target` or is a single block (which may be
+ * bigger). The fewest chunks come first: greedy fills from both ends give that count and the range each cut
+ * may fall in. Within those ranges, dynamic programming picks the packing with the fewest tiny chunks (below
+ * a quarter of the average), then the strongest split points, then the most even sizes.
  */
-function pack(starts: readonly number[], scores: readonly number[], length: number, target: number): number[] {
-  // Thin the candidates so the search stays near-linear: within a short window only the strongest one survives.
-  const gap = Math.max(1, Math.floor(target / 40));
-  const positions = [0];
-  const strengths = [0];
-  for (let index = 1; index < starts.length; index += 1) {
-    const last = positions.length - 1;
-    if (last > 0 && starts[index] - positions[last] < gap) {
-      if (scores[index] > strengths[last]) { positions[last] = starts[index]; strengths[last] = scores[index]; }
-    } else {
-      positions.push(starts[index]);
-      strengths.push(scores[index]);
-    }
-  }
-  positions.push(length);
-  strengths.push(0);
+function pack(blocks: readonly Block[], length: number, target: number): number[] {
+  const positions = [...blocks.map((block) => block.start), length];
   const last = positions.length - 1;
-  const tiny = target / 4;
-  const best: Cost[] = [[0, 0, 0, 0]];
-  const from = [0];
-  for (let i = 1; i <= last; i += 1) {
-    let chosen: Cost | undefined;
-    let chosenFrom = i - 1;
-    for (let j = i - 1; j >= 0; j -= 1) {
-      const size = positions[i] - positions[j];
-      // Always allow the single unit just before i, however large: it may be one indivisible block.
-      if (size > target && j !== i - 1) break;
-      const before = best[j];
-      const cost: Cost = [before[0] + 1, before[1] + (size < tiny ? 1 : 0), before[2] + (i < last ? MAX_SCORE - strengths[i] : 0), before[3] + size * size];
-      if (!chosen || costLess(cost, chosen)) { chosen = cost; chosenFrom = j; }
+  const fits = (from: number, to: number) => to === from + 1 || positions[to] - positions[from] <= target;
+  const forward = [0];
+  while (forward[forward.length - 1] < last) {
+    const from = forward[forward.length - 1];
+    let to = from + 1;
+    while (to < last && fits(from, to + 1)) to += 1;
+    forward.push(to);
+  }
+  const count = forward.length - 1;
+  const backward = [last];
+  for (let step = 1; step <= count; step += 1) {
+    const to = backward[step - 1];
+    let from = Math.max(0, to - 1);
+    while (from > 0 && fits(from - 1, to)) from -= 1;
+    backward.push(step === count ? 0 : from);
+  }
+  const tiny = length / count / 4;
+  const reach = (layer: number) => ({ low: backward[count - layer], high: forward[layer] });
+  type Entry = { cost: Cost; via: number };
+  let before = new Map<number, Entry>([[0, { cost: [0, 0, 0], via: -1 }]]);
+  const layers: Array<Map<number, Entry>> = [before];
+  for (let layer = 1; layer <= count; layer += 1) {
+    const { low, high } = reach(layer);
+    const previousLow = reach(layer - 1).low;
+    const here = new Map<number, Entry>();
+    for (let to = low; to <= high; to += 1) {
+      let chosen: Entry | undefined;
+      for (let from = to - 1; from >= previousLow; from -= 1) {
+        if (!fits(from, to)) break;
+        const prior = before.get(from);
+        if (!prior) continue;
+        const size = positions[to] - positions[from];
+        const cost: Cost = [
+          prior.cost[0] + (size < tiny ? 1 : 0),
+          prior.cost[1] + (to < last ? MAX_SCORE - blocks[to].score : 0),
+          prior.cost[2] + size * size,
+        ];
+        if (!chosen || costLess(cost, chosen.cost)) chosen = { cost, via: from };
+      }
+      if (chosen) here.set(to, chosen);
     }
-    best[i] = chosen!;
-    from[i] = chosenFrom;
+    layers.push(here);
+    before = here;
   }
   const splits: number[] = [];
-  for (let i = last; i > 0; i = from[i]) splits.push(positions[i]);
+  for (let layer = count, index = last; layer > 0; layer -= 1) {
+    splits.push(positions[index]);
+    index = layers[layer].get(index)!.via;
+  }
   return splits.reverse();
 }
 
-/**
- * Divides a document into contiguous chunks at safe block boundaries, each at most `target` characters
- * unless it is a single block. Throws when a block is too big for one request.
- */
-export function chunkDocument(source: string, format: "markdown" | "plaintext", target: number = CHUNK_TARGET): Chunk[] {
-  if (source.length <= target) return [{ start: 0, end: source.length }];
-  const { starts, scores, headings } = scan(source, format);
-  const ends = pack(starts, scores, source.length, target);
+function chunksFrom(source: string, format: "markdown" | "plaintext", blocks: Block[], target: number): Chunk[] {
+  const ends = pack(blocks, source.length, target);
   const chunks: Chunk[] = [];
-  const stack: Heading[] = [];
-  let heading = 0;
+  const stack: Array<{ level: number; text: string }> = [];
+  const headings = blocks.filter((block) => block.heading);
+  let headingIndex = 0;
   let start = 0;
-  for (const end of [...ends]) {
+  for (const end of ends) {
     if (end - start > REVIEW_LIMITS.source) throw new ReviewValidationError(sectionTooLargeMessage);
-    for (; heading < headings.length && headings[heading].offset <= start; heading += 1) {
-      while (stack.length && stack[stack.length - 1].level >= headings[heading].level) stack.pop();
-      stack.push(headings[heading]);
+    for (; headingIndex < headings.length && headings[headingIndex].start <= start; headingIndex += 1) {
+      const heading = headings[headingIndex].heading!;
+      while (stack.length && stack[stack.length - 1].level >= heading.level) stack.pop();
+      stack.push(heading);
     }
     const section = format === "markdown" ? sectionLabel(stack) : undefined;
     chunks.push({ start, end, ...(section ? { section } : {}) });
@@ -218,75 +323,48 @@ export function chunkDocument(source: string, format: "markdown" | "plaintext", 
   return chunks;
 }
 
-/** Below this a segment is not worth its own parse: each fromMarkdown call has a fixed cost. */
-const SEGMENT_MIN = 2_000;
-let lastSegments: { source: string; starts: number[] } | undefined;
-
-/** Groups top-level blocks into runs of at least SEGMENT_MIN characters that can be parsed on their own. */
-function segmentStarts(source: string): number[] {
-  if (lastSegments && lastSegments.source === source) return lastSegments.starts;
-  const blocks = scan(source, "markdown").starts;
-  const starts = [0];
-  for (const block of blocks) if (block - starts[starts.length - 1] >= SEGMENT_MIN) starts.push(block);
-  lastSegments = { source, starts };
-  return starts;
+/**
+ * Divides a document into contiguous chunks at safe block boundaries, each at most `target` characters
+ * unless it is a single block. Throws when a block is too big for one request.
+ */
+export function chunkDocument(source: string, format: "markdown" | "plaintext", target: number = CHUNK_TARGET): Chunk[] {
+  if (source.length <= target) return [{ start: 0, end: source.length }];
+  return chunksFrom(source, format, format === "markdown" ? documentState(source).blocks : plainBlocks(source), target);
 }
 
-const CACHE_LIMIT = 5_000;
-
 /**
- * Runs `compute` on each segment's text, memoised by that text in `cache`, so an edit only recomputes
- * the segment it touched. Values are relative to the segment; `start` says where it sits in the document.
+ * Like chunkDocument, but hands control back between parse windows (a million characters take seconds)
+ * and gives up with `undefined` as soon as `isStopped` says so.
  */
-export function mapDocumentSegments<T>(source: string, cache: Map<string, T>, compute: (text: string) => T): Array<{ start: number; value: T }> {
-  const starts = segmentStarts(source);
-  if (cache.size > CACHE_LIMIT) cache.clear();
-  return starts.map((start, index) => {
-    const text = source.slice(start, starts[index + 1] ?? source.length);
-    let value = cache.get(text);
-    if (value === undefined) { value = compute(text); cache.set(text, value); }
-    return { start, value };
-  });
+export async function chunkDocumentAsync(source: string, format: "markdown" | "plaintext", isStopped: () => boolean, target: number = CHUNK_TARGET): Promise<Chunk[] | undefined> {
+  if (source.length <= target || format === "plaintext") return isStopped() ? undefined : chunkDocument(source, format, target);
+  const generator = buildState(source, cached);
+  for (;;) {
+    const step = generator.next();
+    if (step.done) { cached = step.value; return chunksFrom(source, format, step.value.blocks, target); }
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    if (isStopped()) return undefined;
+  }
 }
 
-/** `null` marks a segment that cannot be parsed (too complex, or bigger than one request). */
-const excludedCache = new Map<string, OffsetRange[] | null>();
-let lastExcluded: { source: string; ranges: OffsetRange[] } | undefined;
-
 /**
- * Excluded ranges stitched together from each segment parsed on its own. This differs from a
- * whole-document parse only where Markdown reaches across a block boundary, i.e. a link reference
- * definition in a different segment from its link.
+ * The top-level blocks of a Markdown document above the request limit as separately parseable slices, or
+ * undefined when it has a block too big or too complex to read. Each block is at most REVIEW_LIMITS.source.
  */
-export function stitchedExcludedRanges(source: string, requireAvailable = false): OffsetRange[] {
-  const segments = mapDocumentSegments(source, excludedCache, (text) => {
-    if (text.length > REVIEW_LIMITS.source) return null;
-    try { return markdownExcludedRanges(text, true); } catch { return null; }
-  });
-  const ranges: OffsetRange[] = [];
-  const add = (start: number, end: number) => {
-    if (end <= start) return;
-    const previous = ranges[ranges.length - 1];
-    if (previous && start <= previous.end) previous.end = Math.max(previous.end, end);
-    else ranges.push({ start, end });
-  };
-  segments.forEach(({ start, value }, index) => {
-    const end = segments[index + 1]?.start ?? source.length;
-    if (value === null) {
-      if (requireAvailable) throw new ReviewValidationError("Markdown is too structurally complex to analyze");
-      add(start, end);
-    } else for (const range of value) add(start + range.start, start + range.end);
-  });
-  return ranges;
+export function documentBlockSlices(source: string): Array<{ start: number; text: string }> | undefined {
+  let state: DocState;
+  try { state = documentState(source); } catch { return undefined; }
+  return state.blocks.map((block, index) => ({ start: block.start, text: source.slice(block.start, state.blocks[index + 1]?.start ?? source.length) }));
 }
 
 /** Excluded ranges for a document of any size up to REVIEW_LIMITS.document; small ones keep the whole-document parse. */
 export function documentExcludedRanges(source: string, requireAvailable = false): OffsetRange[] {
   if (source.length <= REVIEW_LIMITS.source) return markdownExcludedRanges(source, requireAvailable);
   if (source.length > REVIEW_LIMITS.document) throw new ReviewValidationError(`document exceeds ${REVIEW_LIMITS.document} characters`);
-  // Reconcile and the status line ask again after every keystroke; the same text needs no second pass.
-  if (!requireAvailable && lastExcluded?.source === source) return lastExcluded.ranges;
-  const ranges = stitchedExcludedRanges(source, requireAvailable);
-  if (!requireAvailable) lastExcluded = { source, ranges };
-  return ranges;
+  try {
+    return documentState(source).ranges;
+  } catch (error) {
+    if (requireAvailable) throw error;
+    return [{ start: 0, end: source.length }];
+  }
 }

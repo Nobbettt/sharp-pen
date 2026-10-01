@@ -36,7 +36,7 @@ export function buildAnalysisPrompt({ title, format, source, chunk }: AnalysisPr
     throw new ReviewValidationError(`title must be non-empty and at most ${REVIEW_LIMITS.title} characters`);
   }
 
-  const prose = format === "markdown" ? maskMarkdownForPrompt(source) : source;
+  const prose = format === "markdown" ? maskMarkdownForPrompt(source, !chunk || chunk.index === 0) : source;
   const delimiter = sourceDelimiter(prose);
   return [
     "You are sharp-pen, a careful proofreader.",

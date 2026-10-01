@@ -1,9 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import fromMarkdown = require("mdast-util-from-markdown");
 
-import { CHUNK_TARGET, chunkDocument, documentExcludedRanges, stitchedExcludedRanges } from "../../src/review/chunks";
-import { markdownExcludedRanges, REVIEW_LIMITS } from "../../src/review/validate";
+import { CHUNK_TARGET, chunkDocument, documentBlockSlices, documentExcludedRanges, resetDocumentCache } from "../../src/review/chunks";
+import { markdownExcludedRanges, parseGfmMarkdown, REVIEW_LIMITS } from "../../src/review/validate";
 
 /** A small seeded generator, so a failing document can be rebuilt from its seed. */
 function random(seed: number): () => number {
@@ -40,7 +39,7 @@ function generated(seed: number, size: number, front = false): string {
 /** Offsets where a top-level mdast block begins, with its leading indentation skipped. */
 function topLevelStarts(source: string): Set<number> {
   const bom = source.charCodeAt(0) === 0xfeff ? 1 : 0;
-  const tree = fromMarkdown(source.slice(bom)) as { children: Array<{ position: { start: { offset: number } } }> };
+  const tree = parseGfmMarkdown(source.slice(bom)) as { children: Array<{ position: { start: { offset: number } } }> };
   return new Set(tree.children.map((child) => child.position.start.offset + bom));
 }
 
@@ -60,7 +59,7 @@ test("every split of a generated Markdown document is the start of a top-level b
     const starts = topLevelStarts(source);
     for (const chunk of chunks.slice(1)) {
       const indent = /^ */.exec(source.slice(chunk.start))![0].length;
-      assert.ok(starts.has(chunk.start + indent), `seed ${seed}: split at ${chunk.start} is inside a block: ${JSON.stringify(source.slice(chunk.start - 30, chunk.start + 30))}`);
+      assert.ok(starts.has(chunk.start) || starts.has(chunk.start + indent), `seed ${seed}: split at ${chunk.start} is inside a block: ${JSON.stringify(source.slice(chunk.start - 30, chunk.start + 30))}`);
     }
   }
 });
@@ -145,7 +144,7 @@ test("chunks cover a document with a BOM and CRLF line endings with no gap or ov
   assert.ok(chunks.length > 5);
   assertCoversWithoutGaps(source, chunks);
   const starts = topLevelStarts(source);
-  for (const chunk of chunks.slice(1)) assert.ok(starts.has(chunk.start + /^ */.exec(source.slice(chunk.start))![0].length));
+  for (const chunk of chunks.slice(1)) assert.ok(starts.has(chunk.start) || starts.has(chunk.start + /^ */.exec(source.slice(chunk.start))![0].length));
 });
 
 test("a document that fits in one request is a single chunk without a section label", () => {
@@ -170,11 +169,6 @@ test("splitting a million characters is fast", () => {
   assert.ok(elapsed < 2_000, `chunking took ${elapsed} ms`);
 });
 
-test("stitched exclusions match a whole-document parse on documents that fit in one request", () => {
-  const source = generated(5, 60_000, true);
-  assert.deepEqual(stitchedExcludedRanges(source), markdownExcludedRanges(source));
-});
-
 test("excluded ranges of a 300k document keep prose open and exclude code", () => {
   const source = generated(9, 300_000);
   const ranges = documentExcludedRanges(source);
@@ -197,4 +191,115 @@ test("excluded ranges of a million characters cost far less than a whole-documen
   const second = performance.now() - restarted;
   assert.ok(second < first / 2 && second < 1_000, `edit pass took ${second} ms, first ${first} ms`);
   assert.ok(ranges.length > 0);
+});
+
+/** Pads `block` with filler paragraphs so the document is split, then returns where the block sits. */
+function padded(block: string, target = 600): { source: string; begin: number; target: number } {
+  const filler = (n: number) => `Filler ${n} ${"f".repeat(70)}\n\n`;
+  const head = Array.from({ length: 12 }, (_, n) => filler(n)).join("");
+  const tail = Array.from({ length: 12 }, (_, n) => filler(n + 50)).join("");
+  return { source: `${head}${block}${tail}`, begin: head.length, target };
+}
+
+function assertNoSplitInside(block: string, name: string): void {
+  const { source, begin, target } = padded(block);
+  const chunks = chunkDocument(source, "markdown", target);
+  assert.ok(chunks.length > 2, `${name}: not split`);
+  for (const chunk of chunks) assert.ok(!(chunk.start > begin && chunk.start < begin + block.length - 1), `${name}: split at ${chunk.start} is inside the block`);
+}
+
+test("a tilde fence whose closer is indented more than three spaces stays one block", () => {
+  const code = `~~~\n${"code line\n\n".repeat(60)}    ~~~\n\n# still code\n\n`;
+  const { source, begin } = padded(`${code}`);
+  // The indented ~~~ does not close the fence, so everything to the end of the document is code.
+  for (const chunk of chunkDocument(source, "markdown", 600)) assert.ok(!(chunk.start > begin), `split at ${chunk.start} is inside the unclosed fence`);
+});
+
+test("a heading-like line directly after a table row belongs to the table in the GFM parser", () => {
+  const table = `| a | b |\n|---|---|\n${"| x | y |\n".repeat(30)}# heading\n${"| x | y |\n".repeat(30)}`;
+  const { source, target } = padded(table);
+  const starts = topLevelStarts(source);
+  for (const chunk of chunkDocument(source, "markdown", target).slice(1)) {
+    assert.ok(starts.has(chunk.start) || starts.has(chunk.start + /^ */.exec(source.slice(chunk.start))![0].length), `split at ${chunk.start} is not a block start`);
+  }
+});
+
+test("a fence opened inside a list item is not mistaken for a block of its own", () => {
+  const item = `- ~~~\n  code\n\n  more code\n  ~~~\n\nParagraph after the list one.\n\n`;
+  const source = item.repeat(80);
+  const chunks = chunkDocument(source, "markdown", 700);
+  assert.ok(chunks.length > 5);
+  const starts = topLevelStarts(source);
+  for (const chunk of chunks.slice(1)) assert.ok(starts.has(chunk.start), `split at ${chunk.start} is not a block start`);
+});
+
+test("a document of paragraphs the old thinning mishandled still packs within the target in the fewest chunks", () => {
+  const build = (sizes: number[]) => sizes.map((size) => `${"p".repeat(size - 2)}\n\n`).join("");
+  const first = chunkDocument(build([100, 19_700, 200, 20_000]), "markdown");
+  assert.deepEqual(first.map((chunk) => chunk.end - chunk.start), [20_000, 20_000]);
+  const second = chunkDocument(build([100, 19_700, 200, 19_800, 200]), "markdown");
+  assert.equal(second.length, 2);
+  for (const chunk of second) assert.ok(chunk.end - chunk.start <= CHUNK_TARGET);
+});
+
+test("a chunk is only over the target when it is one block that is itself bigger", () => {
+  const source = `Intro.\n\n${"b".repeat(30_000)}\n\n${Array.from({ length: 400 }, (_, n) => `Paragraph ${n} ${"x".repeat(60)}\n\n`).join("")}`;
+  const chunks = chunkDocument(source, "markdown");
+  const big = chunks.filter((chunk) => chunk.end - chunk.start > CHUNK_TARGET);
+  assert.equal(big.length, 1);
+  assert.ok(source.slice(big[0].start, big[0].end).includes("b".repeat(30_000)));
+});
+
+test("a mid-document pair of --- lines is not front matter in the stitched exclusions", () => {
+  const filler = Array.from({ length: 700 }, (_, n) => `Paragraph ${n} ${"x".repeat(150)}\n\n`).join("");
+  const source = `${filler}---\nVisible prose\n---\n\n${filler}`;
+  assert.ok(source.length > REVIEW_LIMITS.source);
+  const at = source.indexOf("Visible prose");
+  const ranges = documentExcludedRanges(source);
+  assert.equal(ranges.some((range) => range.start <= at && at < range.end), false);
+  const slices = documentBlockSlices(source)!;
+  assert.ok(slices.length > 100);
+});
+
+test("a short paragraph followed by one near the request limit does not overflow the stack in tasks or fences", () => {
+  const source = `${"a".repeat(98)}\n\n${"b".repeat(REVIEW_LIMITS.source - 100)}\n\nEnd.\n${"c".repeat(20_000)}\n`;
+  assert.ok(source.length > REVIEW_LIMITS.source);
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { markdownTasks } = require("../../src/review/tasks");
+  const { markdownFences } = require("../../src/review/fences");
+  assert.deepEqual(markdownTasks(source), []);
+  assert.deepEqual(markdownFences(source), []);
+  assert.ok(documentExcludedRanges(source).length > 0);
+});
+
+test("a one-character edit re-reads only the blocks near it, not every later block", () => {
+  const source = Array.from({ length: 1_000 }, (_, n) => `Unique paragraph ${n} ${"u".repeat(960)}\n\n`).join("");
+  documentExcludedRanges(source);
+  const edited = source.slice(1);
+  const started = performance.now();
+  const incremental = documentExcludedRanges(edited);
+  const elapsed = performance.now() - started;
+  assert.ok(elapsed < 300, `edit pass took ${elapsed} ms (a full read of 1,000,000 characters takes seconds)`);
+  resetDocumentCache();
+  assert.deepEqual(incremental, documentExcludedRanges(edited));
+});
+
+test("incremental exclusions after each of several edits equal a computation from scratch", () => {
+  let source = generated(21, 150_000);
+  documentExcludedRanges(source);
+  for (const [at, text, remove] of [[70_000, "x", 0], [70_001, "", 1], [10, "```\n", 0], [120_000, "\n\n# New\n\n", 0], [5, "", 400], [40_000, "\n\n", 0]] as const) {
+    source = `${source.slice(0, at)}${text}${source.slice(at + remove)}`;
+    const incremental = documentExcludedRanges(source);
+    resetDocumentCache();
+    assert.deepEqual(incremental, documentExcludedRanges(source), `after the edit at ${at}`);
+  }
+});
+
+test("a section that is not the document start keeps a --- pair as prose, in the prompt mask and in validation", () => {
+  const text = "---\nVisible prose teh\n---\n\nEnd.\n";
+  const { maskMarkdownForPrompt, validateAndResolve } = require("../../src/review/validate");
+  assert.ok(!maskMarkdownForPrompt(text, true).includes("Visible prose"));
+  assert.ok(maskMarkdownForPrompt(text, false).includes("Visible prose teh"));
+  const response = { title: "T", level1: [{ from: "teh", options: ["the"], note: "Typo" }], level2: [] };
+  assert.equal(validateAndResolve(text, response, "markdown", "T", false).level1.length, 1);
 });
