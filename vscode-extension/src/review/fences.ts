@@ -60,7 +60,7 @@ function largeDocumentFences(source: string): CodeFence[] {
   if (!blocks) return [];
   const used = new Map<string, CodeFence[]>();
   const fences = blocks.flatMap(({ start, text }) => {
-    if (!fenceMarker.test(text)) return [];
+    if (text.length > REVIEW_LIMITS.source || !fenceMarker.test(text)) return [];
     const found = used.get(text) ?? blockFences.get(text) ?? markdownFences(text, parseMarkdownTree(text));
     used.set(text, found);
     return found.map((fence) => ({

@@ -162,6 +162,41 @@ test("structurally complex Markdown is rejected before any CLI is spawned", asyn
   }
 });
 
+test("a document the typing-time check accepts is never rejected by the analyze-time complexity checks", async () => {
+  let calls = 0;
+  const active = controller("*abcdefgh* \n".repeat(2_300), async () => { calls += 1; return { title: "Draft", level1: [], level2: [] }; });
+  try {
+    receive({ type: "ready" });
+    const canAnalyze = posted.at(-1).model.canAnalyze;
+    await active.analyze();
+    if (canAnalyze) assert.ok(calls > 0, "Analyze was offered but then failed without a request");
+    else assert.equal(calls, 0);
+    assert.equal(canAnalyze, false);
+  } finally {
+    active.dispose();
+  }
+});
+
+test("typing in a large plain-text document does not run the section packing", () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const chunks = require("../src/review/chunks") as { chunkDocument: unknown };
+  const original = chunks.chunkDocument;
+  let packed = 0;
+  chunks.chunkDocument = (...args: unknown[]) => { packed += 1; return (original as (...a: unknown[]) => unknown)(...args); };
+  const source = "a\n\n".repeat(40_000);
+  posted.length = 0;
+  const document = { uri: { toString: () => "file:///draft.txt" }, fileName: "/draft.txt", languageId: "plaintext", version: 1, getText: () => source };
+  const active = new ReviewController(document as any, "extension" as any, async () => ({ title: "Draft", level1: [], level2: [] }), () => {}, 2 as any);
+  try {
+    receive({ type: "ready" });
+    assert.equal(posted.at(-1).model.canAnalyze, true);
+    assert.equal(packed, 0);
+  } finally {
+    chunks.chunkDocument = original;
+    active.dispose();
+  }
+});
+
 test("a save event leaves review state untouched, but a real edit reconciles it", async () => {
   let source = "Draft";
   const document: any = {

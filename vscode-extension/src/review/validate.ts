@@ -204,13 +204,22 @@ function addTextRanges(source: string, start: number, end: number, value: string
   flush();
 }
 
-export function markdownTooComplex(source: string): boolean {
+/**
+ * `share` divides the limits that add up over text (delimiters, a run of them, lines, container markers), so
+ * a check of a slice at 1/2 guarantees that any text spanning two such slices passes at 1/1.
+ */
+export function markdownTooComplex(source: string, share = 1): boolean {
+  const limit = (value: number) => Math.floor(value / share);
+  const maxDelimiters = limit(markdownComplexity.delimiters);
+  const maxRun = limit(markdownComplexity.run);
+  const maxLines = limit(markdownComplexity.lines);
+  const maxContainerMarkers = limit(markdownComplexity.containerMarkers);
   let delimiters = 0;
   let run = 0;
   for (let index = 0; index < source.length; index += 1) {
     const code = source.charCodeAt(index);
     if (code === 42 || code === 95 || code === 91 || code === 93 || code === 40 || code === 41 || code === 96) {
-      if (++delimiters > markdownComplexity.delimiters || ++run > markdownComplexity.run) return true;
+      if (++delimiters > maxDelimiters || ++run > maxRun) return true;
     } else {
       run = 0;
     }
@@ -219,7 +228,7 @@ export function markdownTooComplex(source: string): boolean {
   let lines = 0;
   let containerMarkers = 0;
   for (let start = 0; start < source.length;) {
-    if (++lines > markdownComplexity.lines) return true;
+    if (++lines > maxLines) return true;
     const end = source.indexOf("\n", start);
     const limit = end === -1 ? source.length : end;
     let index = start;
@@ -238,7 +247,7 @@ export function markdownTooComplex(source: string): boolean {
           || (source[index + digits + 1] !== " " && source[index + digits + 1] !== "\t")) break;
         index += digits + 2;
       }
-      if (++depth > markdownComplexity.containers || ++containerMarkers > markdownComplexity.containerMarkers) return true;
+      if (++depth > markdownComplexity.containers || ++containerMarkers > maxContainerMarkers) return true;
       if (source[index] === " " || source[index] === "\t") index += 1;
     }
     start = end === -1 ? source.length : end + 1;

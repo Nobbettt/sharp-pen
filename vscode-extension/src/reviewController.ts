@@ -10,8 +10,8 @@ import { parseMarkdownTree } from "./review/markdownTree";
 import { installedLanguageIds } from "./review/languages";
 import type { Chunk } from "./review/chunks";
 import type { Decision, Decisions, Level, Review, ResolvedReview, Suggestion } from "./review/types";
-import { CHUNK_CONCURRENCY, CHUNK_TARGET, chunkDocument, chunkDocumentAsync } from "./review/chunks";
-import { REVIEW_LIMITS, ReviewValidationError, createReview, frontMatterRange, markdownTooComplex, validateAndResolve } from "./review/validate";
+import { CHUNK_CONCURRENCY, chunkDocumentAsync, quickAnalysisProblem, sectionTooLargeMessage } from "./review/chunks";
+import { REVIEW_LIMITS, ReviewValidationError, createReview, frontMatterRange, validateAndResolve } from "./review/validate";
 import { reviewWebviewHtml, type ReviewWebviewModel } from "./webview/reviewWebview";
 import type { PreviewTheme } from "./config";
 
@@ -57,31 +57,18 @@ interface ApplyJob {
 const tooLargeMessage = "Document is too large or complex to analyze.";
 let blockerCache: { source: string; format: string; message: string | undefined } | undefined;
 
-/** Whether any slice of about one section's size is too structurally complex (see validate.ts); linear, and needs no parse. */
-function anySliceTooComplex(source: string): boolean {
-  for (let start = 0; start < source.length;) {
-    const newline = source.indexOf("\n", start + CHUNK_TARGET);
-    const end = newline === -1 ? source.length : newline + 1;
-    if (markdownTooComplex(source.slice(start, end))) return true;
-    start = end;
-  }
-  return false;
-}
-
 /**
  * Why a document can't be analysed, or undefined when it can. It runs on every typing state post, so the
- * answer for the same text is remembered and the check stays linear: length, and for Markdown a complexity
- * check per section-sized slice. A Markdown section too big for one request needs a parse to find, so that
- * error surfaces when the analysis starts; plain text is split by a cheap scan and is checked here.
+ * answer for the same text is remembered and the check stays linear (see quickAnalysisProblem). A Markdown
+ * section too big for one request needs a parse to find, so that error surfaces when the analysis starts.
  */
 function analysisBlocker(source: string, format: "markdown" | "plaintext"): string | undefined {
   if (blockerCache && blockerCache.source === source && blockerCache.format === format) return blockerCache.message;
   let message: string | undefined;
   if (source.length > REVIEW_LIMITS.document) message = tooLargeMessage;
-  else if (format === "markdown") {
-    if (anySliceTooComplex(source)) message = tooLargeMessage;
-  } else {
-    try { chunkDocument(source, format); } catch (error) { message = error instanceof ReviewValidationError ? error.message : tooLargeMessage; }
+  else {
+    const problem = quickAnalysisProblem(source, format);
+    if (problem) message = problem === "section" ? sectionTooLargeMessage : tooLargeMessage;
   }
   blockerCache = { source, format, message };
   return message;

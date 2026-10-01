@@ -32,6 +32,8 @@ interface DocState {
   ranges: OffsetRange[];
   /** Where the YAML front matter ends; an edit that moves it can change how the blocks around it parse. */
   frontMatterEnd: number;
+  /** Every `[label]:` in the text: a definition anywhere decides how a reference in any other block parses (see definitionKey). */
+  definitions: string;
 }
 
 /** Split strength of a heading: H1 is the strongest, then down to H6; a rule and a paragraph break come after. */
@@ -43,6 +45,9 @@ const MAX_SCORE = headingScore(1);
 /** How much text one parse covers when the whole document is read, and when only the area of an edit is re-read. */
 const WINDOW_FULL = 30_000;
 const WINDOW_EDIT = 4_000;
+
+/** For tests: how many characters have gone through the Markdown parser, to show an edit re-reads little. */
+export const parseStats = { characters: 0 };
 
 interface MdNode { type?: string; depth?: number; value?: string; children?: MdNode[]; position?: { start: { offset: number } } }
 
@@ -81,6 +86,7 @@ function scanWindow(source: string, pos: number, size: number): Window {
   let end = Math.min(source.length, pos + size);
   for (;;) {
     const text = source.slice(pos + bom, end);
+    parseStats.characters += text.length;
     if (markdownTooComplex(text)) throw new ReviewValidationError(markdownComplexityMessage);
     let tree: MdNode;
     try { tree = parseGfmMarkdown(text) as MdNode; } catch { throw new ReviewValidationError(markdownComplexityMessage); }
@@ -134,6 +140,16 @@ function lastStartAtMost(items: ReadonlyArray<{ start: number }>, offset: number
 }
 
 /**
+ * A fingerprint of the link reference definitions, found conservatively (any `[label]:`, even in prose or
+ * a container). A `[text][label]` or `[label]` elsewhere is a link or plain text depending on whether a
+ * definition exists, so its excluded ranges can change without its own block changing: when the
+ * fingerprint differs, earlier ranges can't be reused.
+ */
+function definitionKey(source: string): string {
+  return (source.match(/\[(?:[^\]\\]|\\[\s\S])*\]:/g) ?? []).join("\u0000");
+}
+
+/**
  * Builds the block list and excluded ranges window by window, yielding between windows so a caller can
  * hand control back. Given the state of a slightly different earlier text, it re-reads only from the block
  * before the edit until a block start appears that the earlier text also had at the same distance from the
@@ -142,7 +158,8 @@ function lastStartAtMost(items: ReadonlyArray<{ start: number }>, offset: number
 function* buildState(source: string, previous?: DocState): Generator<void, DocState> {
   if (previous?.source === source) return previous;
   const frontMatterEnd = frontMatterRange(source)?.end ?? 0;
-  if (previous && previous.frontMatterEnd !== frontMatterEnd) previous = undefined;
+  const definitions = definitionKey(source);
+  if (previous && (previous.frontMatterEnd !== frontMatterEnd || previous.definitions !== definitions)) previous = undefined;
   let blocks: Block[] = [];
   let ranges: OffsetRange[] = [];
   let pos = 0;
@@ -189,7 +206,12 @@ function* buildState(source: string, previous?: DocState): Generator<void, DocSt
     pos = window.next;
     yield;
   }
-  return { source, blocks, ranges: mergeRanges(ranges), frontMatterEnd };
+  // The last block of a window is only confirmed once the next one starts, so the final block at the end of
+  // the text is not size-checked in scanWindow; every block must fit a request, which tasks and fences rely on.
+  for (let index = 0; index < blocks.length; index += 1) {
+    if ((blocks[index + 1]?.start ?? source.length) - blocks[index].start > REVIEW_LIMITS.source) throw new ReviewValidationError(sectionTooLargeMessage);
+  }
+  return { source, blocks, ranges: mergeRanges(ranges), frontMatterEnd, definitions };
 }
 
 // Only the latest text is kept: the state of every earlier version of an edited document would add up to
@@ -199,6 +221,11 @@ let cached: DocState | undefined;
 /** For tests: forget the previous text, so the next call reads the whole document. */
 export function resetDocumentCache(): void {
   cached = undefined;
+}
+
+/** For tests: what the cache holds, in characters of text plus one unit per block and range. */
+export function documentCacheStats(): { characters: number } {
+  return { characters: cached ? cached.source.length + cached.blocks.length + cached.ranges.length : 0 };
 }
 
 function documentState(source: string): DocState {
@@ -237,7 +264,7 @@ function sectionLabel(stack: ReadonlyArray<{ level: number; text: string }>): st
   return parts.length ? parts.join(" › ") : undefined;
 }
 
-/** Lexicographic cost of a packing beyond its number of requests: tiny chunks, weak split points, uneven sizes. */
+/** Lexicographic cost of a packing beyond its number of requests: tiny chunks, weak split points, uneven cuts. */
 type Cost = [number, number, number];
 const costLess = (a: Cost, b: Cost) => { for (let index = 0; index < 3; index += 1) if (a[index] !== b[index]) return a[index] < b[index]; return false; };
 
@@ -245,7 +272,11 @@ const costLess = (a: Cost, b: Cost) => { for (let index = 0; index < 3; index +=
  * Chooses the split offsets. A chunk is feasible when it fits `target` or is a single block (which may be
  * bigger). The fewest chunks come first: greedy fills from both ends give that count and the range each cut
  * may fall in. Within those ranges, dynamic programming picks the packing with the fewest tiny chunks (below
- * a quarter of the average), then the strongest split points, then the most even sizes.
+ * a quarter of the average), then the strongest split points, then cuts nearest to an even division.
+ *
+ * Each cut's cost is independent of the chunk it closes, apart from whether that chunk is tiny, so the best
+ * start for a cut is a minimum over a window of earlier cuts. Both windows (tiny and not tiny) only move
+ * forward, which a monotonic queue handles: the work is linear in the number of blocks, not quadratic.
  */
 function pack(blocks: readonly Block[], length: number, target: number): number[] {
   const positions = [...blocks.map((block) => block.start), length];
@@ -273,23 +304,48 @@ function pack(blocks: readonly Block[], length: number, target: number): number[
   const layers: Array<Map<number, Entry>> = [before];
   for (let layer = 1; layer <= count; layer += 1) {
     const { low, high } = reach(layer);
-    const previousLow = reach(layer - 1).low;
+    const { low: previousLow, high: previousHigh } = reach(layer - 1);
     const here = new Map<number, Entry>();
+    // Window of earlier cuts that give a chunk that is not tiny, and the one that gives a tiny chunk.
+    const roomy: Array<{ index: number; cost: Cost }> = [];
+    const small: Array<{ index: number; cost: Cost }> = [];
+    let roomyHead = 0;
+    let smallHead = 0;
+    let roomyNext = previousLow;
+    let smallNext = previousLow;
+    let leftmost = previousLow;
+    let roomyEdge = previousLow - 1;
+    const push = (queue: Array<{ index: number; cost: Cost }>, head: number, index: number) => {
+      const entry = before.get(index);
+      if (!entry) return;
+      while (queue.length > head && !costLess(queue[queue.length - 1].cost, entry.cost)) queue.pop();
+      queue.push({ index, cost: entry.cost });
+    };
     for (let to = low; to <= high; to += 1) {
-      let chosen: Entry | undefined;
-      for (let from = to - 1; from >= previousLow; from -= 1) {
-        if (!fits(from, to)) break;
-        const prior = before.get(from);
-        if (!prior) continue;
-        const size = positions[to] - positions[from];
-        const cost: Cost = [
-          prior.cost[0] + (size < tiny ? 1 : 0),
-          prior.cost[1] + (to < last ? MAX_SCORE - blocks[to].score : 0),
-          prior.cost[2] + size * size,
-        ];
-        if (!chosen || costLess(cost, chosen.cost)) chosen = { cost, via: from };
+      while (leftmost < to - 1 && !fits(leftmost, to)) leftmost += 1;
+      while (roomyEdge + 1 <= to - 1 && positions[roomyEdge + 1] <= positions[to] - tiny) roomyEdge += 1;
+      const roomyLimit = Math.min(roomyEdge, to - 1, previousHigh);
+      const smallLimit = Math.min(to - 1, previousHigh);
+      for (; roomyNext <= roomyLimit; roomyNext += 1) push(roomy, roomyHead, roomyNext);
+      for (; smallNext <= smallLimit; smallNext += 1) push(small, smallHead, smallNext);
+      const smallLeft = Math.max(leftmost, roomyEdge + 1);
+      while (roomyHead < roomy.length && roomy[roomyHead].index < leftmost) roomyHead += 1;
+      while (smallHead < small.length && small[smallHead].index < smallLeft) smallHead += 1;
+      const fromRoomy = roomyHead < roomy.length ? roomy[roomyHead] : undefined;
+      const fromSmall = smallHead < small.length ? small[smallHead] : undefined;
+      let prior: Cost | undefined;
+      let via = -1;
+      let penalty = 0;
+      if (fromRoomy) { prior = fromRoomy.cost; via = fromRoomy.index; }
+      if (fromSmall) {
+        const adjusted: Cost = [fromSmall.cost[0] + 1, fromSmall.cost[1], fromSmall.cost[2]];
+        if (!prior || costLess(adjusted, prior)) { prior = fromSmall.cost; via = fromSmall.index; penalty = 1; }
       }
-      if (chosen) here.set(to, chosen);
+      if (!prior) continue;
+      here.set(to, {
+        cost: [prior[0] + penalty, prior[1] + (to < last ? MAX_SCORE - blocks[to].score : 0), prior[2] + Math.abs(positions[to] - (layer * length) / count)],
+        via,
+      });
     }
     layers.push(here);
     before = here;
@@ -330,6 +386,34 @@ function chunksFrom(source: string, format: "markdown" | "plaintext", blocks: Bl
 export function chunkDocument(source: string, format: "markdown" | "plaintext", target: number = CHUNK_TARGET): Chunk[] {
   if (source.length <= target) return [{ start: 0, end: source.length }];
   return chunksFrom(source, format, format === "markdown" ? documentState(source).blocks : plainBlocks(source), target);
+}
+
+/**
+ * The cheap, linear check that runs while typing, and the contract the analysis then keeps: a document it
+ * accepts is never refused for complexity or for a section too big once chunking starts.
+ *
+ * Markdown is cut into slices of at least WINDOW_FULL characters, each checked at half the complexity
+ * limits. A parse window (at most WINDOW_FULL) and a chunk (at most CHUNK_TARGET, below WINDOW_FULL) touch at
+ * most two such slices, so they pass the full limits those steps apply. The exception is one block bigger
+ * than a window, which is checked as a whole when it is reached. Plain text needs only its longest
+ * paragraph measured, since it splits at blank lines.
+ */
+export function quickAnalysisProblem(source: string, format: "markdown" | "plaintext"): "complex" | "section" | undefined {
+  if (source.length <= CHUNK_TARGET) return format === "markdown" && markdownTooComplex(source) ? "complex" : undefined;
+  if (format === "plaintext") {
+    const blocks = plainBlocks(source);
+    for (let index = 0; index < blocks.length; index += 1) {
+      if ((blocks[index + 1]?.start ?? source.length) - blocks[index].start > REVIEW_LIMITS.source) return "section";
+    }
+    return undefined;
+  }
+  for (let start = 0; start < source.length;) {
+    const newline = source.indexOf("\n", start + WINDOW_FULL);
+    const end = newline === -1 ? source.length : newline + 1;
+    if (markdownTooComplex(source.slice(start, end), 2)) return "complex";
+    start = end;
+  }
+  return undefined;
 }
 
 /**

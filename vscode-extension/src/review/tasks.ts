@@ -60,7 +60,7 @@ function largeDocumentTasks(source: string): MarkdownTask[] {
   if (!blocks) return [];
   const used = new Map<string, MarkdownTask[]>();
   const tasks = blocks.flatMap(({ start, text }) => {
-    if (!taskMarker.test(text)) return [];
+    if (text.length > REVIEW_LIMITS.source || !taskMarker.test(text)) return [];
     let found = used.get(text) ?? blockTasks.get(text);
     if (!found) found = tasksIn(text, parseMarkdownTree(text), start === 0);
     used.set(text, found);

@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { CHUNK_TARGET, chunkDocument, documentBlockSlices, documentExcludedRanges, resetDocumentCache } from "../../src/review/chunks";
+import { CHUNK_TARGET, chunkDocument, documentBlockSlices, documentCacheStats, documentExcludedRanges, parseStats, resetDocumentCache } from "../../src/review/chunks";
+import { prepareApply } from "../../src/review/edits";
+import { markdownFences } from "../../src/review/fences";
+import { markdownTasks } from "../../src/review/tasks";
+import { createReview } from "../../src/review/validate";
 import { markdownExcludedRanges, parseGfmMarkdown, REVIEW_LIMITS } from "../../src/review/validate";
 
 /** A small seeded generator, so a failing document can be rebuilt from its seed. */
@@ -302,4 +306,73 @@ test("a section that is not the document start keeps a --- pair as prose, in the
   assert.ok(maskMarkdownForPrompt(text, false).includes("Visible prose teh"));
   const response = { title: "T", level1: [{ from: "teh", options: ["the"], note: "Typo" }], level2: [] };
   assert.equal(validateAndResolve(text, response, "markdown", "T", false).level1.length, 1);
+});
+
+test("a last block over the request limit at the end of the document is refused, and tasks and fences degrade without recursing", () => {
+  const source = `${"a".repeat(98)}\n\n\`\`\`js\n${"b".repeat(99_991)}\n\`\`\``;
+  assert.ok(source.length > REVIEW_LIMITS.source);
+  assert.equal(documentBlockSlices(source), undefined);
+  assert.deepEqual(markdownFences(source), []);
+  assert.deepEqual(markdownTasks(source), []);
+  assert.throws(() => chunkDocument(source, "markdown"), /section too large/);
+});
+
+const referenceDocument = (label: string) => `[${label}]: /dest\n\nText [label][id].\n\n${"Ordinary paragraph.\n\n".repeat(5_500)}`;
+
+test("changing a link reference definition gives the same exclusions as a computation from scratch", () => {
+  resetDocumentCache();
+  documentExcludedRanges(referenceDocument("xx"));
+  const incremental = documentExcludedRanges(referenceDocument("id"));
+  resetDocumentCache();
+  assert.deepEqual(incremental, documentExcludedRanges(referenceDocument("id")));
+});
+
+test("Apply refuses a correction that would break a link whose definition was just added", () => {
+  const source = referenceDocument("id");
+  const start = source.indexOf("[label]");
+  resetDocumentCache();
+  documentExcludedRanges(referenceDocument("xx"));
+  const review = createReview(source, { documentVersion: 3, format: "markdown" }, {
+    title: "T", level1: [{ id: "a", level: 1, start, end: start + 7, from: "[label]", options: ["label"], note: "Brackets", status: "active" }], level2: [], skipped: 0,
+  });
+  const prepared = prepareApply(review, { a: { option: 0 } }, source, 3);
+  assert.deepEqual(prepared.edits, []);
+  assert.equal(prepared.review.level1[0].status, "invalidated");
+});
+
+test("sizing 40,000 tiny paragraphs stays fast, so packing does not grow quadratically", () => {
+  const source = "a\n\n".repeat(40_000);
+  const started = performance.now();
+  const chunks = chunkDocument(source, "plaintext");
+  const elapsed = performance.now() - started;
+  assertCoversWithoutGaps(source, chunks);
+  assert.ok(elapsed < 500, `packing took ${elapsed} ms`);
+});
+
+test("one list-item fence followed by more than 100k of ordinary prose is accepted and chunked", () => {
+  const source = `- ~~~\n  code\n  ~~~\n\n${Array.from({ length: 1_500 }, (_, n) => `Ordinary paragraph ${n} ${"w".repeat(80)}\n\n`).join("")}`;
+  assert.ok(source.length > REVIEW_LIMITS.source);
+  const chunks = chunkDocument(source, "markdown");
+  assertCoversWithoutGaps(source, chunks);
+  for (const chunk of chunks) assert.ok(chunk.end - chunk.start <= CHUNK_TARGET);
+});
+
+test("deleting the first character of a 1,000-paragraph document re-parses only the blocks near it", () => {
+  const source = Array.from({ length: 1_000 }, (_, n) => `Unique paragraph ${n} ${"u".repeat(960)}\n\n`).join("");
+  documentExcludedRanges(source);
+  const before = parseStats.characters;
+  documentExcludedRanges(source.slice(1));
+  // A full read is about 1,000,000 characters; the edit pass needs a few windows around the edit.
+  assert.ok(parseStats.characters - before < 40_000, `${parseStats.characters - before} characters were parsed again`);
+});
+
+test("the cache keeps only the latest version of a document, however many versions are analysed", () => {
+  let source = Array.from({ length: 1_000 }, (_, n) => `Unique paragraph ${n} ${"u".repeat(960)}\n\n`).join("");
+  documentExcludedRanges(source);
+  const single = documentCacheStats().characters;
+  for (let version = 1; version <= 6; version += 1) {
+    source = `${"v".repeat(version)}${source.slice(version)}`;
+    documentExcludedRanges(source);
+  }
+  assert.ok(documentCacheStats().characters <= single * 1.1, `${documentCacheStats().characters} retained, one version is ${single}`);
 });
