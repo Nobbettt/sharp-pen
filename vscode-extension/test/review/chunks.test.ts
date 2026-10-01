@@ -1,12 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { CHUNK_TARGET, chunkDocument, documentBlockSlices, documentCacheStats, documentExcludedRanges, parseStats, resetDocumentCache } from "../../src/review/chunks";
+import { CHUNK_TARGET, chunkDocument, quickAnalysisProblem, documentBlockSlices, documentCacheStats, definitionScanStats, documentExcludedRanges, parseStats, resetDocumentCache } from "../../src/review/chunks";
 import { prepareApply } from "../../src/review/edits";
 import { markdownFences } from "../../src/review/fences";
 import { markdownTasks } from "../../src/review/tasks";
 import { createReview } from "../../src/review/validate";
-import { markdownExcludedRanges, parseGfmMarkdown, REVIEW_LIMITS } from "../../src/review/validate";
+import { markdownExcludedRanges, markdownTooComplex, parseGfmMarkdown, REVIEW_LIMITS } from "../../src/review/validate";
 
 /** A small seeded generator, so a failing document can be rebuilt from its seed. */
 function random(seed: number): () => number {
@@ -375,4 +375,91 @@ test("the cache keeps only the latest version of a document, however many versio
     documentExcludedRanges(source);
   }
   assert.ok(documentCacheStats().characters <= single * 1.1, `${documentCacheStats().characters} retained, one version is ${single}`);
+});
+
+test("a document up to the request limit is analysable exactly when the whole-document check of today accepts it", () => {
+  const documents = [
+    "*abcdefgh* \n".repeat(1_900),
+    "*abcdefgh* \n".repeat(2_300),
+    ("*abcdefgh*" + " ".repeat(19) + "\n").repeat(3_000),
+    "a".repeat(90_000),
+    `${"*a* \n".repeat(1_000)}\n${"plain\n".repeat(10_000)}`,
+  ];
+  for (const source of documents) {
+    assert.ok(source.length <= REVIEW_LIMITS.source);
+    const quick = quickAnalysisProblem(source, "markdown");
+    assert.equal(quick === "complex", markdownTooComplex(source), `${source.length} characters: ${quick}`);
+    if (!markdownTooComplex(source)) assert.doesNotThrow(() => chunkDocument(source, "markdown"));
+  }
+});
+
+test("a document above the request limit that passes the typing check is never refused for complexity when chunked", () => {
+  const dense = ("*" + "a".repeat(28) + "\n").repeat(3_000);
+  const source = `${dense}\n${"Ordinary paragraph of plain prose.\n\n".repeat(900)}`;
+  assert.ok(source.length > REVIEW_LIMITS.source);
+  assert.equal(quickAnalysisProblem(source, "markdown"), undefined);
+  assert.doesNotThrow(() => chunkDocument(source, "markdown"));
+  // Dense enough that one block of this size could not be read: the typing check has to say so up front.
+  const tooDense = `${("*abcdefgh*" + " ".repeat(19) + "\n").repeat(3_000)}\n${"Ordinary paragraph of plain prose.\n\n".repeat(900)}`;
+  if (quickAnalysisProblem(tooDense, "markdown") === undefined) assert.doesNotThrow(() => chunkDocument(tooDense, "markdown"));
+});
+
+const definitionVariants: Array<[string, string, string]> = [
+  ["a destination added", "[id]: \n", "[id]: /dest\n"],
+  ["a destination removed", "[id]: /dest\n", "[id]: \n"],
+  ["a destination changed", "[id]: /dest\n", "[id]: <bad dest\n"],
+  ["indented into a code block", "[id]: /dest\n", "    [id]: /dest\n"],
+  ["indented by three spaces", "[id]: /dest\n", "   [id]: /dest\n"],
+];
+const referenceWith = (definition: string, definitionFirst: boolean) => {
+  const filler = "Ordinary paragraph.\n\n".repeat(5_500);
+  return definitionFirst ? `${definition}\nText [label][id].\n\n${filler}` : `Text [label][id].\n\n${filler}${definition}\nTail.\n`;
+};
+
+for (const [name, from, to] of definitionVariants) {
+  for (const definitionFirst of [true, false]) {
+    test(`exclusions after a definition is ${name} equal a computation from scratch (${definitionFirst ? "first" : "last"} block)`, () => {
+      resetDocumentCache();
+      documentExcludedRanges(referenceWith(from, definitionFirst));
+      const incremental = documentExcludedRanges(referenceWith(to, definitionFirst));
+      resetDocumentCache();
+      assert.deepEqual(incremental, documentExcludedRanges(referenceWith(to, definitionFirst)));
+    });
+  }
+}
+
+test("Apply refuses a correction that breaks a link once a destination was added to its empty definition", () => {
+  const source = referenceWith("[id]: /dest\n", true);
+  const start = source.indexOf("[label]");
+  resetDocumentCache();
+  documentExcludedRanges(referenceWith("[id]: \n", true));
+  const review = createReview(source, { documentVersion: 3, format: "markdown" }, {
+    title: "T", level1: [{ id: "a", level: 1, start, end: start + 7, from: "[label]", options: ["label"], note: "Brackets", status: "active" }], level2: [], skipped: 0,
+  });
+  const prepared = prepareApply(review, { a: { option: 0 } }, source, 3);
+  assert.deepEqual(prepared.edits, []);
+  assert.equal(prepared.review.level1[0].status, "invalidated");
+});
+
+test("an edit in a document full of unclosed link labels is not quadratic", () => {
+  const source = ("[x" + "p".repeat(60) + "\n\n").repeat(8_000);
+  documentExcludedRanges(source);
+  const started = performance.now();
+  const incremental = documentExcludedRanges(`q${source.slice(1)}`);
+  const elapsed = performance.now() - started;
+  assert.ok(elapsed < 600, `the edit took ${elapsed} ms`);
+  resetDocumentCache();
+  assert.deepEqual(incremental, documentExcludedRanges(`q${source.slice(1)}`));
+});
+
+test("the definition scan looks at each character a bounded number of times, however many labels are left open", () => {
+  for (const unit of ["[x" + "p".repeat(60) + "\n\n", "[".repeat(50) + "\n\n", "[a\\]" + "b".repeat(2_000) + "\n"]) {
+    const source = unit.repeat(Math.ceil(500_000 / unit.length));
+    resetDocumentCache();
+    documentExcludedRanges(source);
+    const before = definitionScanStats.characters;
+    documentExcludedRanges(`q${source.slice(1)}`);
+    const looked = definitionScanStats.characters - before;
+    assert.ok(looked <= 4 * 8_000 + 2 * 100_000, `${looked} characters scanned for one edit`);
+  }
 });

@@ -204,16 +204,11 @@ function addTextRanges(source: string, start: number, end: number, value: string
   flush();
 }
 
-/**
- * `share` divides the limits that add up over text (delimiters, a run of them, lines, container markers), so
- * a check of a slice at 1/2 guarantees that any text spanning two such slices passes at 1/1.
- */
-export function markdownTooComplex(source: string, share = 1): boolean {
-  const limit = (value: number) => Math.floor(value / share);
-  const maxDelimiters = limit(markdownComplexity.delimiters);
-  const maxRun = limit(markdownComplexity.run);
-  const maxLines = limit(markdownComplexity.lines);
-  const maxContainerMarkers = limit(markdownComplexity.containerMarkers);
+export function markdownTooComplex(source: string): boolean {
+  const maxDelimiters = markdownComplexity.delimiters;
+  const maxRun = markdownComplexity.run;
+  const maxLines = markdownComplexity.lines;
+  const maxContainerMarkers = markdownComplexity.containerMarkers;
   let delimiters = 0;
   let run = 0;
   for (let index = 0; index < source.length; index += 1) {

@@ -32,8 +32,6 @@ interface DocState {
   ranges: OffsetRange[];
   /** Where the YAML front matter ends; an edit that moves it can change how the blocks around it parse. */
   frontMatterEnd: number;
-  /** Every `[label]:` in the text: a definition anywhere decides how a reference in any other block parses (see definitionKey). */
-  definitions: string;
 }
 
 /** Split strength of a heading: H1 is the strongest, then down to H6; a rule and a paragraph break come after. */
@@ -139,14 +137,40 @@ function lastStartAtMost(items: ReadonlyArray<{ start: number }>, offset: number
   return low - 1;
 }
 
+/** For tests: how many characters the definition-candidate scanner has looked at. */
+export const definitionScanStats = { characters: 0 };
+
+/** CommonMark caps a link label at 999 characters. */
+const MAX_LABEL = 999;
+
 /**
- * A fingerprint of the link reference definitions, found conservatively (any `[label]:`, even in prose or
- * a container). A `[text][label]` or `[label]` elsewhere is a link or plain text depending on whether a
- * definition exists, so its excluded ranges can change without its own block changing: when the
- * fingerprint differs, earlier ranges can't be reused.
+ * Whether `text` has, starting between `from` and `to`, something that may be a link reference definition:
+ * a `[label]:` whose label has no unescaped bracket and no blank line and is at most MAX_LABEL long. It is
+ * deliberately loose (prose, containers and indentation all count): a definition decides how a `[text][label]`
+ * in ANY other block parses, so a block that holds one can't be re-read alone. Linear: a scan from a `[`
+ * stops at the next bracket or after MAX_LABEL characters, and the next scan starts after that point.
  */
-function definitionKey(source: string): string {
-  return (source.match(/\[(?:[^\]\\]|\\[\s\S])*\]:/g) ?? []).join("\u0000");
+function hasDefinitionCandidate(text: string, from: number, to: number): boolean {
+  const limit = Math.min(to, text.length);
+  let open = text.indexOf("[", from);
+  while (open !== -1 && open < limit) {
+    let index = open + 1;
+    let resume = -1;
+    for (; index < text.length && index - open <= MAX_LABEL; index += 1) {
+      const char = text[index];
+      if (char === "\\") { index += 1; continue; }
+      if (char === "]") { if (text[index + 1] === ":") { definitionScanStats.characters += index - open; return true; } resume = index + 1; break; }
+      if (char === "[") { resume = index; break; }
+      if (char === "\n") {
+        let after = index + 1;
+        while (text[after] === " " || text[after] === "\t" || text[after] === "\r") after += 1;
+        if (text[after] === "\n") break;
+      }
+    }
+    definitionScanStats.characters += index - open;
+    open = text.indexOf("[", resume === -1 ? Math.max(index, open + 1) : resume);
+  }
+  return false;
 }
 
 /**
@@ -158,8 +182,7 @@ function definitionKey(source: string): string {
 function* buildState(source: string, previous?: DocState): Generator<void, DocState> {
   if (previous?.source === source) return previous;
   const frontMatterEnd = frontMatterRange(source)?.end ?? 0;
-  const definitions = definitionKey(source);
-  if (previous && (previous.frontMatterEnd !== frontMatterEnd || previous.definitions !== definitions)) previous = undefined;
+  if (previous && previous.frontMatterEnd !== frontMatterEnd) previous = undefined;
   let blocks: Block[] = [];
   let ranges: OffsetRange[] = [];
   let pos = 0;
@@ -181,6 +204,16 @@ function* buildState(source: string, previous?: DocState): Generator<void, DocSt
     blocks = previous.blocks.slice(0, restart);
     ranges = previous.ranges.filter((range) => range.start < pos).map((range) => ({ start: range.start, end: Math.min(range.end, pos) }));
     size = WINDOW_EDIT;
+    // A definition decides how references in every other block parse. If the blocks this edit touches held
+    // one before or hold one now, no earlier or later range can be trusted: read the whole text again.
+    const touchedEnd = previous.blocks[lastStartAtMost(previous.blocks, old.length - suffix) + 1]?.start ?? old.length;
+    if (hasDefinitionCandidate(old, pos, touchedEnd) || hasDefinitionCandidate(source, pos, Math.max(touchedEnd + delta, editEnd))) {
+      previous = undefined;
+      blocks = [];
+      ranges = [];
+      pos = 0;
+      size = WINDOW_FULL;
+    }
   }
   for (;;) {
     const window = scanWindow(source, pos, size);
@@ -211,7 +244,7 @@ function* buildState(source: string, previous?: DocState): Generator<void, DocSt
   for (let index = 0; index < blocks.length; index += 1) {
     if ((blocks[index + 1]?.start ?? source.length) - blocks[index].start > REVIEW_LIMITS.source) throw new ReviewValidationError(sectionTooLargeMessage);
   }
-  return { source, blocks, ranges: mergeRanges(ranges), frontMatterEnd, definitions };
+  return { source, blocks, ranges: mergeRanges(ranges), frontMatterEnd };
 }
 
 // Only the latest text is kept: the state of every earlier version of an edited document would add up to
@@ -388,30 +421,39 @@ export function chunkDocument(source: string, format: "markdown" | "plaintext", 
   return chunksFrom(source, format, format === "markdown" ? documentState(source).blocks : plainBlocks(source), target);
 }
 
+/** Slice length for the typing check on a long document; see quickAnalysisProblem. */
+const SLICE = 25_000;
+/** A parse window or a chunk is at most REVIEW_LIMITS.source + 1 characters, so it touches at most this many slices. */
+const SLICES_PER_UNIT = Math.floor(REVIEW_LIMITS.source / SLICE) + 2;
+
 /**
  * The cheap, linear check that runs while typing, and the contract the analysis then keeps: a document it
  * accepts is never refused for complexity or for a section too big once chunking starts.
  *
- * Markdown is cut into slices of at least WINDOW_FULL characters, each checked at half the complexity
- * limits. A parse window (at most WINDOW_FULL) and a chunk (at most CHUNK_TARGET, below WINDOW_FULL) touch at
- * most two such slices, so they pass the full limits those steps apply. The exception is one block bigger
- * than a window, which is checked as a whole when it is reached. Plain text needs only its longest
- * paragraph measured, since it splits at blank lines.
+ * Up to REVIEW_LIMITS.source it is exactly the whole-document check a single request has always had; every
+ * window and chunk is then part of a text that passed it. Above that, every analysis step (a parse window,
+ * which grows to REVIEW_LIMITS.source + 1, and a chunk, which is at most that) checks a span of at most
+ * that length at the full limits. Slices of at least SLICE characters cover any such span with
+ * SLICES_PER_UNIT neighbours, so checking every run of that many slices at the full limits guarantees each
+ * step passes. Plain text needs only its longest paragraph measured, since it splits at blank lines.
  */
 export function quickAnalysisProblem(source: string, format: "markdown" | "plaintext"): "complex" | "section" | undefined {
-  if (source.length <= CHUNK_TARGET) return format === "markdown" && markdownTooComplex(source) ? "complex" : undefined;
   if (format === "plaintext") {
+    if (source.length <= CHUNK_TARGET) return undefined;
     const blocks = plainBlocks(source);
     for (let index = 0; index < blocks.length; index += 1) {
       if ((blocks[index + 1]?.start ?? source.length) - blocks[index].start > REVIEW_LIMITS.source) return "section";
     }
     return undefined;
   }
-  for (let start = 0; start < source.length;) {
-    const newline = source.indexOf("\n", start + WINDOW_FULL);
-    const end = newline === -1 ? source.length : newline + 1;
-    if (markdownTooComplex(source.slice(start, end), 2)) return "complex";
-    start = end;
+  if (source.length <= REVIEW_LIMITS.source) return markdownTooComplex(source) ? "complex" : undefined;
+  const bounds = [0];
+  while (bounds[bounds.length - 1] < source.length) {
+    const newline = source.indexOf("\n", bounds[bounds.length - 1] + SLICE);
+    bounds.push(newline === -1 ? source.length : newline + 1);
+  }
+  for (let slice = 0; slice + 1 < bounds.length; slice += 1) {
+    if (markdownTooComplex(source.slice(bounds[slice], bounds[Math.min(slice + SLICES_PER_UNIT, bounds.length - 1)]))) return "complex";
   }
   return undefined;
 }
