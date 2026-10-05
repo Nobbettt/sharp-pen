@@ -1,10 +1,11 @@
-import { REVIEW_LIMITS, ReviewValidationError, assertReviewSource, maskMarkdownForPrompt } from "../review/validate";
+import { REVIEW_LIMITS, ReviewValidationError, assertReviewSource, mask, maskMarkdownForPrompt, type OffsetRange } from "../review/validate";
 import { agentResponseSchema } from "./schema";
 
 export interface AnalysisPromptInput {
   title: string;
   format: "markdown" | "plaintext";
   source: string;
+  excludedRanges?: readonly OffsetRange[];
   /** Present when `source` is one section of a longer document (see chunks.ts). */
   chunk?: { index: number; total: number; section?: string };
 }
@@ -30,13 +31,13 @@ export const exampleResponse = {
 } as const;
 
 /** Builds the single, provider-neutral instruction sent to every local AI CLI. */
-export function buildAnalysisPrompt({ title, format, source, chunk }: AnalysisPromptInput): string {
+export function buildAnalysisPrompt({ title, format, source, chunk, excludedRanges }: AnalysisPromptInput): string {
   assertReviewSource(source);
   if (!title.trim() || title.length > REVIEW_LIMITS.title) {
     throw new ReviewValidationError(`title must be non-empty and at most ${REVIEW_LIMITS.title} characters`);
   }
 
-  const prose = format === "markdown" ? maskMarkdownForPrompt(source, !chunk || chunk.index === 0) : source;
+  const prose = format === "markdown" ? (excludedRanges ? mask(source, excludedRanges) : maskMarkdownForPrompt(source, !chunk || chunk.index === 0)) : source;
   const delimiter = sourceDelimiter(prose);
   return [
     "You are sharp-pen, a careful proofreader.",

@@ -88,7 +88,7 @@ export function assertReviewSource(source: string): void {
 
 export interface OffsetRange { start: number; end: number; }
 
-function mask(source: string, ranges: readonly OffsetRange[]): string {
+export function mask(source: string, ranges: readonly OffsetRange[]): string {
   const chars = source.split("");
   for (const range of ranges) {
     for (let index = range.start; index < range.end; index += 1) {
@@ -462,10 +462,10 @@ function resolveLevel(source: string, entries: readonly AgentSuggestion[], level
   return kept;
 }
 
-export function validateAndResolve(source: string, value: unknown, format: "markdown" | "plaintext" = "plaintext", requestedTitle = "", documentStart = true): ResolvedReview {
+export function validateAndResolve(source: string, value: unknown, format: "markdown" | "plaintext" = "plaintext", requestedTitle = "", documentStart = true, documentRanges: readonly OffsetRange[] = []): ResolvedReview {
   assertReviewSource(source);
   const response = validateAgentResponse(value, requestedTitle);
-  const ranges = format === "markdown" ? markdownExcludedRanges(source, true, documentStart) : [];
+  const ranges = format === "markdown" ? normalizedRanges([...markdownExcludedRanges(source, true, documentStart), ...documentRanges]) : [];
   const level1 = resolveLevel(source, response.level1, 1, ranges);
   const level2 = resolveLevel(source, response.level2, 2, ranges)
     .filter((sentence) => !level1.some((correction) => rangesOverlap(sentence, correction) && !contains(sentence, correction)));

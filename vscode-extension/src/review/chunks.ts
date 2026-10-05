@@ -32,6 +32,7 @@ interface DocState {
   ranges: OffsetRange[];
   /** Where the YAML front matter ends; an edit that moves it can change how the blocks around it parse. */
   frontMatterEnd: number;
+  referenceDefinitions: string;
 }
 
 /** Split strength of a heading: H1 is the strongest, then down to H6; a rule and a paragraph break come after. */
@@ -47,7 +48,7 @@ const WINDOW_EDIT = 4_000;
 /** For tests: how many characters have gone through the Markdown parser, to show an edit re-reads little. */
 export const parseStats = { characters: 0 };
 
-interface MdNode { type?: string; depth?: number; value?: string; children?: MdNode[]; position?: { start: { offset: number } } }
+interface MdNode { type?: string; depth?: number; value?: string; identifier?: string; children?: MdNode[]; position?: { start: { offset: number } } }
 
 function plainText(node: MdNode): string {
   if (typeof node.value === "string") return node.value;
@@ -55,6 +56,7 @@ function plainText(node: MdNode): string {
 }
 
 interface Window {
+  definitions: string[];
   blocks: Block[];
   /** Excluded ranges of the confirmed blocks, in document offsets. */
   ranges: OffsetRange[];
@@ -84,26 +86,27 @@ export const unsegmentableMessage = "Document is too large or complex to analyze
  * A window that cannot be parsed (too complex for the parser guard, or the parser throws) leaves no known
  * block boundary in its span, and nothing is guessed there: the whole document has no safe segmentation.
  */
-function scanWindow(source: string, pos: number, size: number): Window {
+function scanWindow(source: string, pos: number, size: number, definitions = ""): Window {
   const bom = pos === 0 && source.charCodeAt(0) === 0xfeff ? 1 : 0;
   const frontMatterEnd = pos === 0 ? (frontMatterRange(source)?.end ?? 0) : 0;
   let end = Math.min(source.length, pos + size);
   for (;;) {
     const text = source.slice(pos + bom, end);
-    parseStats.characters += text.length;
+    const context = definitions && text.includes("[") ? `\n\n${definitions}` : "";
+    parseStats.characters += text.length + context.length;
     // Up to the request limit the document passed main's whole-document check (BOM included) before it got here,
     // and re-checking the BOM-less text could disagree with it; above it only this window's own text is checked.
     let tree: MdNode | undefined;
     if (source.length > REVIEW_LIMITS.source && markdownTooComplex(text)) tree = undefined;
     else {
-      try { tree = parseGfmMarkdown(text) as MdNode; } catch { tree = undefined; }
+      try { tree = parseGfmMarkdown(text + context) as MdNode; } catch { tree = undefined; }
     }
     if (!tree) throw new ReviewValidationError(unsegmentableMessage);
     const atEnd = end >= source.length;
     const found: Array<{ start: number; node: MdNode }> = [];
     for (const node of tree.children ?? []) {
       const offset = node.position?.start.offset;
-      if (offset === undefined) continue;
+      if (offset === undefined || offset >= text.length) continue;
       const absolute = pos + bom + offset;
       // Leading spaces belong to the block's line; a chunk must start at the line, not after its indentation.
       const start = found.length === 0 ? pos : Math.max(pos, source.lastIndexOf("\n", absolute - 1) + 1);
@@ -133,7 +136,14 @@ function scanWindow(source: string, pos: number, size: number): Window {
     }
     if (frontMatterEnd) ranges.push({ start: 0, end: frontMatterEnd });
     ranges.sort((a, b) => a.start - b.start || a.end - b.end);
-    return { blocks, ranges: mergeRanges(ranges), next };
+    const foundDefinitions: string[] = [];
+    const collect = (node: MdNode): void => {
+      const start = node.position?.start.offset;
+      if (node.type === "definition" && node.identifier && start !== undefined && start + shift < next && start + shift >= frontMatterEnd) foundDefinitions.push(`[${node.identifier}]: /sharp-pen-reference`);
+      for (const child of node.children ?? []) collect(child);
+    };
+    collect(tree);
+    return { blocks, ranges: mergeRanges(ranges), next, definitions: foundDefinitions };
   }
 }
 
@@ -191,7 +201,7 @@ function hasDefinitionCandidate(text: string, from: number, to: number): boolean
  * before the edit until a block start appears that the earlier text also had at the same distance from the
  * end: from there the rest is identical, so it is taken over (shifted) instead of parsed again.
  */
-function* buildState(source: string, previous?: DocState): Generator<void, DocState> {
+function* buildState(source: string, previous?: DocState, definitions = ""): Generator<void, DocState> {
   if (previous?.source === source) return previous;
   const frontMatterEnd = frontMatterRange(source)?.end ?? 0;
   if (previous && previous.frontMatterEnd !== frontMatterEnd) previous = undefined;
@@ -227,8 +237,10 @@ function* buildState(source: string, previous?: DocState): Generator<void, DocSt
       size = WINDOW_FULL;
     }
   }
+  const foundDefinitions: string[] = [];
   for (;;) {
-    const window = scanWindow(source, pos, size);
+    const window = scanWindow(source, pos, size, previous?.referenceDefinitions ?? definitions);
+    foundDefinitions.push(...window.definitions);
     const lineUp = previous && window.blocks.find((block) => {
       const oldStart = block.start - delta;
       return block.start >= editEnd && oldStart > 0 && previous!.blocks[lastStartAtMost(previous!.blocks, oldStart)].start === oldStart;
@@ -256,12 +268,20 @@ function* buildState(source: string, previous?: DocState): Generator<void, DocSt
   for (let index = 0; index < blocks.length; index += 1) {
     if ((blocks[index + 1]?.start ?? source.length) - blocks[index].start > REVIEW_LIMITS.source) throw new ReviewValidationError(sectionTooLargeMessage);
   }
-  return { source, blocks, ranges: mergeRanges(ranges), frontMatterEnd };
+  // Definitions apply across windows. A second pass resolves references using the complete definition set.
+  // ponytail: normalized definition labels are appended only to windows with brackets; a shared tokenizer context if definition-heavy documents become slow.
+  if (!previous && !definitions && foundDefinitions.length) {
+    yield;
+    return yield* buildState(source, undefined, foundDefinitions.join("\n\n"));
+  }
+  return { source, blocks, ranges: mergeRanges(ranges), frontMatterEnd, referenceDefinitions: previous?.referenceDefinitions ?? definitions };
 }
 
 // Only the latest text is kept: the state of every earlier version of an edited document would add up to
 // hundreds of megabytes, and the next call needs just the previous one to find what an edit touched.
 let cached: DocState | undefined;
+
+export const hasDocumentState = (source: string): boolean => cached?.source === source;
 
 /** For tests: forget the previous text, so the next call reads the whole document. */
 export function resetDocumentCache(): void {
@@ -270,7 +290,7 @@ export function resetDocumentCache(): void {
 
 /** For tests: what the cache holds, in characters of text plus one unit per block and range. */
 export function documentCacheStats(): { characters: number } {
-  return { characters: cached ? cached.source.length + cached.blocks.length + cached.ranges.length : 0 };
+  return { characters: cached ? cached.source.length + cached.referenceDefinitions.length + cached.blocks.length + cached.ranges.length : 0 };
 }
 
 function documentState(source: string): DocState {

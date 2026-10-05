@@ -1617,3 +1617,47 @@ test("a single parsed block above the request limit still says the section is to
   assert.equal(lastModel().error.message, "Document has a section too large to analyze.");
   active.dispose();
 });
+
+
+test("section prompts and responses protect reference identifiers defined in another section", async () => {
+  const { buildAnalysisPrompt } = require("../src/ai/prompt");
+  const source = "Text [label][id].\n\n" + "Ordinary paragraph.\n\n".repeat(6000) + "[id]: /dest\n";
+  const active = controller(source, async (request) => {
+    if (request.chunk?.index === 0) assert.doesNotMatch(buildAnalysisPrompt(request), /Text \[label\]\[id\]/);
+    return { title: "Draft", level1: [{ from: "[id]", options: ["[other]"], note: "Correction" }], level2: [] };
+  });
+  await active.analyze();
+  assert.equal(lastModel().level1.length, 0);
+  active.dispose();
+});
+
+test("cold large-document analysis yields and cancellation stops segmentation before any request", async () => {
+  const { resetDocumentCache, parseStats } = require("../src/review/chunks");
+  const source = "Ordinary paragraph.\n\n".repeat(45000);
+  resetDocumentCache();
+  let calls = 0;
+  const active = controller(source, async () => { calls += 1; return typoResponse; });
+  const before = parseStats.characters;
+  const run = active.analyze();
+  assert.ok(parseStats.characters - before < 100000, "must return control before parsing the whole document");
+  active.cancelAnalysis();
+  await run;
+  assert.equal(calls, 0);
+  assert.ok(parseStats.characters - before < 100000, "Cancel must not synchronously restart segmentation");
+  active.dispose();
+});
+
+
+test("opening a cold large review yields, then populates tasks and fences asynchronously", async () => {
+  const { resetDocumentCache, parseStats } = require("../src/review/chunks");
+  const source = "- [ ] task\n\n```js\nconst x = 1;\n```\n\n" + "Ordinary paragraph.\n\n".repeat(6000);
+  resetDocumentCache();
+  const before = parseStats.characters;
+  const active = controller(source);
+  receive({ type: "ready" });
+  assert.ok(parseStats.characters - before < 100000);
+  for (let attempt = 0; attempt < 100 && !lastModel().tasks.length; attempt += 1) await new Promise<void>((resolve) => setImmediate(resolve));
+  assert.equal(lastModel().tasks.length, 1);
+  assert.equal(lastModel().fences.length, 1);
+  active.dispose();
+});

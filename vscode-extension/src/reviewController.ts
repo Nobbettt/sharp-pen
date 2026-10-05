@@ -10,8 +10,8 @@ import { parseMarkdownTree } from "./review/markdownTree";
 import { installedLanguageIds } from "./review/languages";
 import type { Chunk } from "./review/chunks";
 import type { Decision, Decisions, Level, Review, ResolvedReview, Suggestion } from "./review/types";
-import { CHUNK_CONCURRENCY, chunkDocumentAsync, quickAnalysisProblem, sectionTooLargeMessage } from "./review/chunks";
-import { REVIEW_LIMITS, ReviewValidationError, createReview, frontMatterRange, markdownComplexityMessage, validateAndResolve } from "./review/validate";
+import { CHUNK_CONCURRENCY, chunkDocumentAsync, documentExcludedRanges, hasDocumentState, quickAnalysisProblem, sectionTooLargeMessage } from "./review/chunks";
+import { REVIEW_LIMITS, ReviewValidationError, createReview, frontMatterRange, markdownComplexityMessage, type OffsetRange, validateAndResolve } from "./review/validate";
 import { reviewWebviewHtml, type ReviewWebviewModel } from "./webview/reviewWebview";
 import type { PreviewTheme } from "./config";
 
@@ -19,6 +19,7 @@ export interface AnalysisRequest {
   title: string;
   format: "markdown" | "plaintext";
   source: string;
+  excludedRanges?: readonly OffsetRange[];
   uri: string;
   documentVersion: number;
   /** Set only when the document is analysed in sections; `source` is then just that section's text. */
@@ -103,6 +104,7 @@ export class ReviewController implements vscode.Disposable {
   private panelDisposables: vscode.Disposable[] = [];
   private typingTimer: ReturnType<typeof setTimeout> | undefined;
   private typingStatePending = false;
+  private preparingSource: string | undefined;
 
   constructor(
     document: vscode.TextDocument,
@@ -285,6 +287,7 @@ export class ReviewController implements vscode.Disposable {
             job.progress = { done: 0, total };
             this.postState();
           }
+          const ranges = snapshot.format === "markdown" && !stopped() ? documentExcludedRanges(snapshot.source, true) : [];
           const outcomes: Array<ResolvedReview | undefined> = new Array(total).fill(undefined);
           const failures: Array<{ index: number; error: unknown }> = [];
           let next = 0;
@@ -295,13 +298,14 @@ export class ReviewController implements vscode.Disposable {
               const index = next++;
               const chunk = chunks![index];
               const text = snapshot.source.slice(chunk.start, chunk.end);
+              const excludedRanges = ranges.filter((range) => range.start < chunk.end && range.end > chunk.start).map((range) => ({ start: Math.max(range.start, chunk.start) - chunk.start, end: Math.min(range.end, chunk.end) - chunk.start }));
               try {
                 const request: AnalysisRequest = total > 1
-                  ? { ...snapshot, source: text, chunk: { index, total, ...(chunk.section ? { section: chunk.section } : {}) } }
+                  ? { ...snapshot, source: text, excludedRanges, chunk: { index, total, ...(chunk.section ? { section: chunk.section } : {}) } }
                   : snapshot;
                 const result = await this.runner!(request, job.abort.signal);
                 if (stopped()) return;
-                outcomes[index] = placeInDocument(validateAndResolve(text, result, snapshot.format, snapshot.title, chunk.start === 0), chunk.start, total > 1 ? `c${index}-` : "");
+                outcomes[index] = placeInDocument(validateAndResolve(text, result, snapshot.format, snapshot.title, chunk.start === 0, excludedRanges), chunk.start, total > 1 ? `c${index}-` : "");
               } catch (error) {
                 if (stopped()) return;
                 failures.push({ index, error });
@@ -647,7 +651,19 @@ export class ReviewController implements vscode.Disposable {
     const format = this.document.languageId === "markdown" ? "markdown" : "plaintext";
     const blocker = analysisBlocker(source, format);
     const oversized = blocker !== undefined;
-    const markdown = !oversized && this.document.languageId === "markdown";
+    let markdown = !oversized && this.document.languageId === "markdown";
+    if (markdown && source.length > REVIEW_LIMITS.source && !hasDocumentState(source)) {
+      // Opening a review must yield too: task/fence scans otherwise populate the cache synchronously.
+      markdown = false;
+      if (!this.analysis && this.preparingSource !== source) {
+        this.preparingSource = source;
+        const stopped = () => this.disposed || this.document.getText() !== source || this.analysis !== undefined;
+        void chunkDocumentAsync(source, "markdown", stopped).then((chunks) => {
+          if (!chunks && this.preparingSource === source) this.preparingSource = undefined;
+          if (!stopped()) this.postState();
+        }, () => undefined);
+      }
+    }
     const tree = markdown ? parseMarkdownTree(source) : undefined;
     const suggestion = (item: Suggestion) => ({
       ...item,
@@ -665,8 +681,8 @@ export class ReviewController implements vscode.Disposable {
       canAnalyze: !oversized && vscode.workspace.isTrusted && this.runner !== undefined && !this.sourceEditing && !this.applying && !this.analysis,
       hasReview: this.review !== undefined,
       canToggleTasks: !oversized && vscode.workspace.isTrusted && this.document.languageId === "markdown" && !this.sourceEditing && !this.applying && !this.analysis,
-      tasks: markdown ? markdownTasks(source, tree) : [],
-      fences: markdown ? markdownFences(source, tree) : [],
+      tasks: markdown && !this.analysis ? markdownTasks(source, tree) : [],
+      fences: markdown && !this.analysis ? markdownFences(source, tree) : [],
       // The webview drops this slice from every rendered pane; markdown-it has no front-matter rule, so
       // rendering it raw turns "---" into a thematic break and the YAML into a bogus heading (see R5-05).
       frontMatterEnd: oversized || this.document.languageId !== "markdown" ? 0 : (frontMatterRange(source)?.end ?? 0),

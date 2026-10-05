@@ -9,4 +9,3 @@ export function straddlingComplexChunkDocument(prefix = "", suffix = "", prose =
   text += `${"*a* ".repeat(1_900).trim()}\n\n`;
   return text + prose.repeat(Math.ceil((101_000 - text.length) / prose.length)) + suffix;
 }
-

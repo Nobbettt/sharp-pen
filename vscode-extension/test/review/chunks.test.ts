@@ -166,13 +166,13 @@ test("each chunk is labelled with the headings above where it starts", () => {
   assert.equal(chunks.at(-1)!.section, "Install › macOS");
 });
 
-test("splitting a million characters is fast", () => {
+test("splitting a million characters parses a bounded amount of text", () => {
   const source = generated(3, 1_000_000);
-  const started = performance.now();
+  resetDocumentCache();
+  const before = parseStats.characters;
   const chunks = chunkDocument(source, "markdown");
-  const elapsed = performance.now() - started;
   assert.ok(chunks.length >= 50 && chunks.length <= 70, `${chunks.length} chunks`);
-  assert.ok(elapsed < 2_000, `chunking took ${elapsed} ms`);
+  assert.ok(parseStats.characters - before < source.length * 3, "parser work must stay bounded");
 });
 
 test("excluded ranges of a 300k document keep prose open and exclude code", () => {
@@ -184,18 +184,18 @@ test("excluded ranges of a 300k document keep prose open and exclude code", () =
   assert.equal(touches(source.lastIndexOf("# not a heading")), true);
 });
 
-test("excluded ranges of a million characters cost far less than a whole-document parse, and an edit reuses the unchanged blocks", () => {
+test("large-document parsing is bounded and edits reuse unchanged blocks", () => {
   const source = generated(4, 990_000);
-  const started = performance.now();
+  resetDocumentCache();
+  const before = parseStats.characters;
   documentExcludedRanges(source);
-  const first = performance.now() - started;
-  assert.ok(first < 5_000, `first pass took ${first} ms (a whole-document parse takes about 7000 ms)`);
+  const first = parseStats.characters - before;
+  assert.ok(first < source.length * 3);
   const at = Math.floor(source.length / 2);
   const edited = `${source.slice(0, at)}x${source.slice(at)}`;
-  const restarted = performance.now();
+  const restarted = parseStats.characters;
   const ranges = documentExcludedRanges(edited);
-  const second = performance.now() - restarted;
-  assert.ok(second < first / 2 && second < 1_000, `edit pass took ${second} ms, first ${first} ms`);
+  assert.ok(parseStats.characters - restarted < first / 2, "an edit must reuse unchanged blocks");
   assert.ok(ranges.length > 0);
 });
 
@@ -534,4 +534,29 @@ test("a too-complex chunk of a segmentable document does not disable tasks or fe
   assert.equal(chunks.filter((chunk) => markdownTooComplex(source.slice(chunk.start, chunk.end))).length, 1);
   assert.equal(markdownTasks(source).length, 2);
   assert.equal(markdownFences(source).length, 2);
+});
+
+
+test("distant reference definitions protect link syntax in exclusions, reconciliation and Apply", () => {
+  const source = "Text [label][id].\n\n" + "Ordinary paragraph.\n\n".repeat(6000) + "[id]: /dest\n";
+  resetDocumentCache();
+  const start = source.indexOf("[id]");
+  const ranges = documentExcludedRanges(source);
+  assert.ok(ranges.some((range) => range.start <= start && range.end >= start + 4));
+  const suggestion = { id: "a", level: 1 as const, start, end: start + 4, from: "[id]", options: ["[other]"], note: "Correction", status: "active" as const };
+  const review = createReview(source, { documentVersion: 1, format: "markdown" }, { title: "T", level1: [suggestion], level2: [], skipped: 0 });
+  assert.deepEqual(prepareApply(review, { a: { option: 0 } }, source, 1).edits, []);
+  assert.equal(reconcileSourceChanges(review, {}, [], source, 1).review.level1[0].status, "invalidated");
+  const edited = source.replace("Ordinary", "Normal");
+  const incremental = documentExcludedRanges(edited);
+  resetDocumentCache();
+  assert.deepEqual(incremental, documentExcludedRanges(edited));
+});
+
+
+test("reference definitions in block quotes retain context across windows", () => {
+  const source = "Text [label][id].\n\n" + "Ordinary paragraph.\n\n".repeat(6000) + "> [id]:\n> /dest\n";
+  resetDocumentCache();
+  const start = source.indexOf("[id]");
+  assert.ok(documentExcludedRanges(source).some((range) => range.start <= start && range.end >= start + 4));
 });
