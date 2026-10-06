@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.4.0
 
 - Recognize VS Code's agent, prompt, instruction and skill Markdown language modes, or any filename ending in `.md` (case-insensitive), so the review button and Markdown handling remain available.
 - Analyse documents of up to 1,000,000 characters (previously 100,000) in sections: each section is a separate AI request, at most three run at once, and its suggestions appear as soon as it finishes. The status shows "Analyzed 3 of 7 sections". A failed section is reported without discarding the others.
