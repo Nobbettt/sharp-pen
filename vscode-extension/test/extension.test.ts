@@ -196,7 +196,7 @@ const lastState = (panel: { posted: any[] }) => [...panel.posted].reverse().find
 
 test("Markdown variants show review commands and follow the active editor as Markdown", async () => {
   const manifest = JSON.parse(readFileSync("package.json", "utf8"));
-  for (const [name, languageId] of [["notes.v2.md", "markdown"], ["orchestrator.agent.md", "chatagent"], ["review.prompt.md", "prompt"], ["style.instructions.md", "instructions"], ["SKILL.md", "skill"]]) {
+  for (const [name, languageId] of [["notes.v2.md", "markdown"], ["notes.markdown", "markdown"], ["orchestrator.agent.md", "chatagent"], ["review.prompt.md", "prompt"], ["style.instructions.md", "instructions"], ["SKILL.md", "skill"]]) {
     const { panels, commandHandlers, setDocuments, focus } = activateExtension();
     const document = { ...markdownDocument(name), languageId };
     setDocuments([document]);
@@ -210,11 +210,34 @@ test("Markdown variants show review commands and follow the active editor as Mar
     assert.equal(lastState(panels[0]).documentId, next.uri.toString());
     for (const location of ["editor/title", "editor/context", "commandPalette"]) {
       const entry = manifest.contributes.menus[location].find((item: any) => item.command === "sharpPen.openReview");
-      const pattern = entry.when.match(/\/(.*)\//)[1];
+      const pattern = entry.when.match(/editorLangId =~ \/([^/]+)\//)[1];
       assert.ok(new RegExp(pattern).test(languageId), `${location} excludes ${languageId}`);
     }
     panels[0].onDisposeListener?.();
   }
+});
+
+test("the .md filename fallback opens, follows and renders files assigned another language", () => {
+  const { panels, commandHandlers, setDocuments, focus } = activateExtension();
+  const first = { ...markdownDocument("orchestrator.agent.md"), languageId: "json" };
+  const second = { ...markdownDocument("notes.v2.MD"), languageId: "plaintext" };
+  setDocuments([first, second]);
+  commandHandlers["sharpPen.openReview"](first.uri);
+  assert.equal(panels.length, 1);
+  panels[0].receive({ type: "ready" });
+  assert.equal(lastState(panels[0]).format, "markdown");
+  focus(second);
+  assert.equal(lastState(panels[0]).documentId, second.uri.toString());
+  assert.equal(lastState(panels[0]).format, "markdown");
+  focus({ ...markdownDocument("notes.md.json"), languageId: "json" });
+  assert.equal(lastState(panels[0]).documentId, second.uri.toString(), "only the final filename extension counts");
+  const manifest = JSON.parse(readFileSync("package.json", "utf8"));
+  for (const location of ["editor/title", "editor/context", "commandPalette"]) {
+    for (const entry of manifest.contributes.menus[location].filter((item: any) => ["sharpPen.openReview", "sharpPen.analyze"].includes(item.command))) {
+      assert.ok(entry.when.includes("|| resourceExtname =~ /^\\.md$/i"), `${entry.command} in ${location} needs the .md fallback`);
+    }
+  }
+  panels[0].onDisposeListener?.();
 });
 
 test("one review panel follows the focused Markdown document and routes webview messages to it", async () => {

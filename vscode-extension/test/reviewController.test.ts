@@ -1310,8 +1310,8 @@ function paragraphs(count: number): string {
 const typoResponse = { title: "Draft", level1: [{ from: "teh", occurrence: 1, options: ["the"], note: "Typo" }], level2: [] };
 const settle = () => new Promise<void>((resolve) => setTimeout(resolve, 5));
 
-test("agent, prompt, instruction and skill documents retain Markdown syntax protection", async () => {
-  for (const languageId of ["chatagent", "prompt", "instructions", "skill"]) {
+test("Markdown language modes and .md filename fallbacks retain Markdown syntax protection", async () => {
+  for (const languageId of ["chatagent", "prompt", "instructions", "skill", "json", "plaintext"]) {
     const source = "---\nname: hidden\n---\n\nProse teh.\n\n```js\nhiddenCode\n```\n\n- [ ] task\n";
     const document: any = { uri: { toString: () => `file:///test.${languageId}.md` }, fileName: `/test.${languageId}.md`, languageId, version: 1, getText: () => source };
     const active = new ReviewController(document, "extension" as any, async (request) => {

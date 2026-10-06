@@ -31,6 +31,11 @@ export async function run(): Promise<void> {
     await vscode.commands.executeCommand("sharpPen.openReview", agent.uri);
     const agentStatus = await vscode.commands.executeCommand("sharpPen.analyze", agent.uri);
     assert.deepEqual(agentStatus, { state: "ready", error: undefined, suggestions: 0 });
+    const reassociated = await vscode.languages.setTextDocumentLanguage(agent, "json");
+    assert.equal(reassociated.languageId, "json");
+    await vscode.window.showTextDocument(reassociated);
+    const fallbackStatus = await vscode.commands.executeCommand("sharpPen.analyze", reassociated.uri);
+    assert.deepEqual(fallbackStatus, { state: "ready", error: undefined, suggestions: 0 });
   } finally {
     await fixture.restore();
   }
