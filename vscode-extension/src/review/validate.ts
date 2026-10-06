@@ -23,11 +23,19 @@ const gfmMdastExtensions: any[] = [
   require("mdast-util-gfm-strikethrough").fromMarkdown,
   require("mdast-util-gfm-table").fromMarkdown,
   require("mdast-util-gfm-task-list-item").fromMarkdown,
+  { enter: { definitionLabelString(this: any, token: any) {
+    // Keep the parser's original label: lowercasing can expand it beyond CommonMark's 999-character limit.
+    this.stack[this.stack.length - 1].referenceLabel = this.sliceSerialize(token);
+    this.buffer();
+  } } },
 ];
 const literalUrlPattern = /\bhttps?:\/\/[^\s<>]+|\bwww\.[^\s<>]+/gi;
 
 export const REVIEW_LIMITS = {
+  /** The most one request may carry; a document above this is analysed in sections (see chunks.ts). */
   source: 100_000,
+  /** The most a whole document may hold and still be analysed. */
+  document: 1_000_000,
   title: 256,
   suggestionsPerLevel: 100,
   from: 10_000,
@@ -47,7 +55,7 @@ const responseKeys = new Set(["title", "level1", "level2"]);
 const suggestionKeys = new Set(["from", "occurrence", "options", "note"]);
 // 20,000 lines and 2,048 container markers keep a maximum-size source below a few hundred milliseconds of Markdown parsing.
 const markdownComplexity = { delimiters: 4_096, run: 1_024, containers: 128, lines: 20_000, containerMarkers: 2_048 };
-const markdownComplexityMessage = "Markdown is too structurally complex to analyze";
+export const markdownComplexityMessage = "Markdown is too structurally complex to analyze";
 
 function object(value: unknown, label: string): Record<string, unknown> {
   if (value === null || typeof value !== "object" || Array.isArray(value)) {
@@ -85,7 +93,7 @@ export function assertReviewSource(source: string): void {
 
 export interface OffsetRange { start: number; end: number; }
 
-function mask(source: string, ranges: readonly OffsetRange[]): string {
+export function mask(source: string, ranges: readonly OffsetRange[]): string {
   const chars = source.split("");
   for (const range of ranges) {
     for (let index = range.start; index < range.end; index += 1) {
@@ -202,12 +210,16 @@ function addTextRanges(source: string, start: number, end: number, value: string
 }
 
 export function markdownTooComplex(source: string): boolean {
+  const maxDelimiters = markdownComplexity.delimiters;
+  const maxRun = markdownComplexity.run;
+  const maxLines = markdownComplexity.lines;
+  const maxContainerMarkers = markdownComplexity.containerMarkers;
   let delimiters = 0;
   let run = 0;
   for (let index = 0; index < source.length; index += 1) {
     const code = source.charCodeAt(index);
     if (code === 42 || code === 95 || code === 91 || code === 93 || code === 40 || code === 41 || code === 96) {
-      if (++delimiters > markdownComplexity.delimiters || ++run > markdownComplexity.run) return true;
+      if (++delimiters > maxDelimiters || ++run > maxRun) return true;
     } else {
       run = 0;
     }
@@ -216,7 +228,7 @@ export function markdownTooComplex(source: string): boolean {
   let lines = 0;
   let containerMarkers = 0;
   for (let start = 0; start < source.length;) {
-    if (++lines > markdownComplexity.lines) return true;
+    if (++lines > maxLines) return true;
     const end = source.indexOf("\n", start);
     const limit = end === -1 ? source.length : end;
     let index = start;
@@ -235,7 +247,7 @@ export function markdownTooComplex(source: string): boolean {
           || (source[index + digits + 1] !== " " && source[index + digits + 1] !== "\t")) break;
         index += digits + 2;
       }
-      if (++depth > markdownComplexity.containers || ++containerMarkers > markdownComplexity.containerMarkers) return true;
+      if (++depth > markdownComplexity.containers || ++containerMarkers > maxContainerMarkers) return true;
       if (source[index] === " " || source[index] === "\t") index += 1;
     }
     start = end === -1 ? source.length : end + 1;
@@ -243,15 +255,18 @@ export function markdownTooComplex(source: string): boolean {
   return false;
 }
 
-/** Returns Markdown-only regions that cannot be sent to or accepted from an agent. */
-export function markdownExcludedRanges(source: string, requireAvailable = false): OffsetRange[] {
-  assertReviewSource(source);
-  if (markdownTooComplex(source)) {
-    if (requireAvailable) throw new ReviewValidationError(markdownComplexityMessage);
-    return source.length ? [{ start: 0, end: source.length }] : [];
-  }
+/** Parses Markdown the way every range computation here does: core CommonMark plus the fast GFM pieces. */
+export function parseGfmMarkdown(text: string): unknown {
+  return fromMarkdown(text, { extensions: gfmSyntaxExtensions, mdastExtensions: gfmMdastExtensions });
+}
+
+/**
+ * The excluded ranges of an already parsed `source`; `bom` is 1 when `source` starts with a byte-order mark
+ * the tree was parsed without. `frontMatter` is false for text that is not the start of its document: only the
+ * true start can have front matter, and a `---` pair further down is a rule or a setext heading.
+ */
+export function excludedRangesFromTree(source: string, tree: unknown, bom: number, frontMatter: boolean): OffsetRange[] {
   const allowed: OffsetRange[] = [];
-  const bom = source.charCodeAt(0) === 0xfeff ? 1 : 0;
   const visit = (node: unknown, parent?: MdastNode): void => {
     if (!mdastNode(node)) return;
     const startOffset = node.position?.start?.offset;
@@ -264,12 +279,7 @@ export function markdownExcludedRanges(source: string, requireAvailable = false)
     }
     if (Array.isArray(node.children)) for (const child of node.children) visit(child, node);
   };
-  try {
-    visit(fromMarkdown(source.slice(bom), { extensions: gfmSyntaxExtensions, mdastExtensions: gfmMdastExtensions }));
-  } catch {
-    if (requireAvailable) throw new ReviewValidationError(markdownComplexityMessage);
-    return source.length ? [{ start: 0, end: source.length }] : [];
-  }
+  visit(tree);
 
   const excluded: OffsetRange[] = [];
   let cursor = 0;
@@ -279,14 +289,32 @@ export function markdownExcludedRanges(source: string, requireAvailable = false)
   }
   addRange(excluded, cursor, source.length);
   for (const match of source.matchAll(literalUrlPattern)) addRange(excluded, match.index, match.index + match[0].length);
-  const frontMatter = frontMatterRange(source);
-  if (frontMatter) excluded.push(frontMatter);
+  const frontMatterSpan = frontMatter ? frontMatterRange(source) : undefined;
+  if (frontMatterSpan) excluded.push(frontMatterSpan);
   return normalizedRanges(excluded);
 }
 
+/** Returns Markdown-only regions that cannot be sent to or accepted from an agent. */
+export function markdownExcludedRanges(source: string, requireAvailable = false, documentStart = true): OffsetRange[] {
+  assertReviewSource(source);
+  if (markdownTooComplex(source)) {
+    if (requireAvailable) throw new ReviewValidationError(markdownComplexityMessage);
+    return source.length ? [{ start: 0, end: source.length }] : [];
+  }
+  const bom = source.charCodeAt(0) === 0xfeff ? 1 : 0;
+  let tree: unknown;
+  try {
+    tree = parseGfmMarkdown(source.slice(bom));
+  } catch {
+    if (requireAvailable) throw new ReviewValidationError(markdownComplexityMessage);
+    return source.length ? [{ start: 0, end: source.length }] : [];
+  }
+  return excludedRangesFromTree(source, tree, bom, documentStart);
+}
+
 /** Keeps offsets and line numbers stable while removing non-prose Markdown from prompts. */
-export function maskMarkdownForPrompt(source: string): string {
-  return mask(source, markdownExcludedRanges(source));
+export function maskMarkdownForPrompt(source: string, documentStart = true): string {
+  return mask(source, markdownExcludedRanges(source, false, documentStart));
 }
 
 /** Whether a source range intersects a Markdown-only region. */
@@ -439,10 +467,10 @@ function resolveLevel(source: string, entries: readonly AgentSuggestion[], level
   return kept;
 }
 
-export function validateAndResolve(source: string, value: unknown, format: "markdown" | "plaintext" = "plaintext", requestedTitle = ""): ResolvedReview {
+export function validateAndResolve(source: string, value: unknown, format: "markdown" | "plaintext" = "plaintext", requestedTitle = "", documentStart = true, documentRanges: readonly OffsetRange[] = []): ResolvedReview {
   assertReviewSource(source);
   const response = validateAgentResponse(value, requestedTitle);
-  const ranges = format === "markdown" ? markdownExcludedRanges(source, true) : [];
+  const ranges = format === "markdown" ? normalizedRanges([...markdownExcludedRanges(source, true, documentStart), ...documentRanges]) : [];
   const level1 = resolveLevel(source, response.level1, 1, ranges);
   const level2 = resolveLevel(source, response.level2, 2, ranges)
     .filter((sentence) => !level1.some((correction) => rangesOverlap(sentence, correction) && !contains(sentence, correction)));

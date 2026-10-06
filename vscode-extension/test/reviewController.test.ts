@@ -2,11 +2,13 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import { ProcessRunnerError } from "../src/ai/processRunner";
+import { straddlingComplexChunkDocument } from "./review/straddlingDocument";
 
 const Module = require("node:module") as { _load: (...args: any[]) => unknown };
 const load = Module._load;
 const disposable = { dispose() {} };
 const posted: any[] = [];
+const progressReports: any[] = [];
 let receive: (message: unknown) => void = () => {};
 let trusted = true;
 const vscode = {
@@ -49,7 +51,7 @@ const vscode = {
         },
       };
     },
-    withProgress: (_options: unknown, task: (progress: unknown, token: unknown) => Promise<unknown>) => task({}, { onCancellationRequested: () => disposable }),
+    withProgress: (_options: unknown, task: (progress: unknown, token: unknown) => Promise<unknown>) => task({ report: (value: unknown) => progressReports.push(value) }, { onCancellationRequested: () => disposable }),
   },
 };
 Module._load = (request: string, ...args: any[]) => request === "vscode" ? vscode : load(request, ...args);
@@ -137,7 +139,7 @@ test("closing the panel mid-analysis tears the controller down instead of throwi
 });
 
 test("oversized documents never enter the webview model", () => {
-  const active = controller("x".repeat(REVIEW_LIMITS.source + 1));
+  const active = controller("x".repeat(REVIEW_LIMITS.document + 1));
   receive({ type: "ready" });
   const model = posted.at(-1).model;
   assert.equal(model.currentSource, "");
@@ -157,6 +159,69 @@ test("structurally complex Markdown is rejected before any CLI is spawned", asyn
     assert.equal(called, false);
     assert.equal(posted.at(-1).model.error.message, "Document is too large or complex to analyze.");
   } finally {
+    active.dispose();
+  }
+});
+
+test("a document the typing-time check accepts is never rejected by the analyze-time complexity checks", async () => {
+  let calls = 0;
+  const active = controller("*abcdefgh* \n".repeat(2_300), async () => { calls += 1; return { title: "Draft", level1: [], level2: [] }; });
+  try {
+    receive({ type: "ready" });
+    const canAnalyze = posted.at(-1).model.canAnalyze;
+    await active.analyze();
+    if (canAnalyze) assert.ok(calls > 0, "Analyze was offered but then failed without a request");
+    else assert.equal(calls, 0);
+    assert.equal(canAnalyze, false);
+  } finally {
+    active.dispose();
+  }
+});
+
+test("Markdown that the whole-document check accepts stays analysable, as before sectioning", async () => {
+  let calls = 0;
+  const active = controller("*abcdefgh* \n".repeat(1_900), async () => { calls += 1; return { title: "Draft", level1: [], level2: [] }; });
+  try {
+    receive({ type: "ready" });
+    assert.equal(posted.at(-1).model.canAnalyze, true);
+    await active.analyze();
+    assert.ok(calls > 0);
+  } finally {
+    active.dispose();
+  }
+});
+
+test("a 90,000-character block the typing check passes never fails for complexity before a request", async () => {
+  let calls = 0;
+  const source = ("*abcdefgh*" + " ".repeat(19) + "\n").repeat(3_000);
+  const active = controller(source, async () => { calls += 1; return { title: "Draft", level1: [], level2: [] }; });
+  try {
+    receive({ type: "ready" });
+    const canAnalyze = posted.at(-1).model.canAnalyze;
+    await active.analyze();
+    if (canAnalyze) assert.ok(calls > 0 || !/complex/.test(posted.at(-1).model.error?.message ?? ""), "Analyze was offered but failed for complexity");
+    else assert.equal(calls, 0);
+  } finally {
+    active.dispose();
+  }
+});
+
+test("typing in a large plain-text document does not run the section packing", () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const chunks = require("../src/review/chunks") as { chunkDocument: unknown };
+  const original = chunks.chunkDocument;
+  let packed = 0;
+  chunks.chunkDocument = (...args: unknown[]) => { packed += 1; return (original as (...a: unknown[]) => unknown)(...args); };
+  const source = "a\n\n".repeat(40_000);
+  posted.length = 0;
+  const document = { uri: { toString: () => "file:///draft.txt" }, fileName: "/draft.txt", languageId: "plaintext", version: 1, getText: () => source };
+  const active = new ReviewController(document as any, "extension" as any, async () => ({ title: "Draft", level1: [], level2: [] }), () => {}, 2 as any);
+  try {
+    receive({ type: "ready" });
+    assert.equal(posted.at(-1).model.canAnalyze, true);
+    assert.equal(packed, 0);
+  } finally {
+    chunks.chunkDocument = original;
     active.dispose();
   }
 });
@@ -1233,4 +1298,410 @@ test("fenced selector and themed scrollbar CSS leave indented code plain", () =>
   assert.match(script, /data-sharp-pen-fence-index/);
   assert.match(script, /function restoreFenceFocus\(/);
   assert.match(script, /Code block \$\{index \+ 1\} language/);
+});
+
+
+// ---- Analysis in sections (documents above CHUNK_TARGET) ----
+
+/** `count` paragraphs of about 100 characters, each with one typo, so every section has something to report. */
+function paragraphs(count: number): string {
+  return Array.from({ length: count }, (_, n) => `Paragraph ${n} has a teh typo in it and a few more words to fill the space up.\n\n`).join("");
+}
+const typoResponse = { title: "Draft", level1: [{ from: "teh", occurrence: 1, options: ["the"], note: "Typo" }], level2: [] };
+const settle = () => new Promise<void>((resolve) => setTimeout(resolve, 5));
+
+test("Markdown language modes and .md filename fallbacks retain Markdown syntax protection", async () => {
+  for (const languageId of ["chatagent", "prompt", "instructions", "skill", "json", "plaintext"]) {
+    const source = "---\nname: hidden\n---\n\nProse teh.\n\n```js\nhiddenCode\n```\n\n- [ ] task\n";
+    const document: any = { uri: { toString: () => `file:///test.${languageId}.md` }, fileName: `/test.${languageId}.md`, languageId, version: 1, getText: () => source };
+    const active = new ReviewController(document, "extension" as any, async (request) => {
+      assert.equal(request.format, "markdown");
+      return { title: request.title, level1: [{ from: "hiddenCode", options: ["changed"], note: "Code" }, { from: "teh", options: ["the"], note: "Typo" }], level2: [] };
+    }, () => {}, 2 as any);
+    await active.analyze();
+    const model = posted.at(-1).model;
+    assert.equal(model.format, "markdown");
+    assert.equal(model.level1.length, 1);
+    assert.equal(model.level1[0].from, "teh");
+    assert.ok(model.frontMatterEnd > 0);
+    assert.equal(model.tasks.length, 1);
+    assert.equal(model.fences.length, 1);
+    active.dispose();
+  }
+});
+const sectionedSource = paragraphs(650); // about 55k characters, so at least three sections
+
+function lastModel() { return posted.at(-1).model; }
+
+test("sections are analysed as separate requests, and their suggestions are placed at document offsets with unique ids", async () => {
+  const requests: Array<{ source: string; chunk?: { index: number; total: number } }> = [];
+  const active = controller(sectionedSource, async (request) => { requests.push(request); return typoResponse; });
+  await active.analyze();
+  assert.ok(requests.length >= 3);
+  assert.equal(requests.map((request) => request.source).join(""), sectionedSource);
+  const model = lastModel();
+  assert.equal(model.state, "ready");
+  assert.equal(model.level1.length, requests.length);
+  assert.equal(new Set(model.level1.map((item: any) => item.id)).size, requests.length);
+  for (const item of model.level1) assert.equal(sectionedSource.slice(item.start, item.end), "teh");
+  // The suggestion of a later section sits in that section, not at the offset it had inside its own text.
+  const second = requests[1];
+  assert.ok(model.level1.some((item: any) => item.start === sectionedSource.indexOf(second.source) + second.source.indexOf("teh")));
+  assert.deepEqual(requests.map((request) => request.chunk?.index).sort(), requests.map((_, index) => index));
+  assert.equal(requests[0].chunk?.total, requests.length);
+  active.dispose();
+});
+
+test("progress is posted as each section finishes and is gone once the run ends", async () => {
+  progressReports.length = 0;
+  const active = controller(sectionedSource, async () => { await settle(); return typoResponse; });
+  await active.analyze();
+  const analyzing = posted.map((message) => message.model).filter((model) => model?.state === "analyzing");
+  const total = analyzing.find((model) => model.progress)!.progress.total;
+  assert.ok(total >= 3);
+  const seen = new Set(analyzing.filter((model) => model.progress).map((model) => model.progress.done));
+  for (let done = 0; done < total; done += 1) assert.ok(seen.has(done), `no state showed ${done} of ${total} sections done`);
+  assert.equal(lastModel().progress, undefined);
+  assert.ok(progressReports.some((report) => new RegExp(`1 of ${total}`).test(report.message)));
+  active.dispose();
+});
+
+test("suggestions of finished sections are shown while the others are still running", async () => {
+  let release!: () => void;
+  const hold = new Promise<void>((resolve) => { release = resolve; });
+  const active = controller(sectionedSource, async (request) => { if (!request.source.includes("Paragraph 0 ")) await hold; return typoResponse; });
+  const run = active.analyze();
+  await settle();
+  const model = lastModel();
+  assert.equal(model.state, "analyzing");
+  assert.equal(model.level1.length, 1);
+  assert.equal(model.progress.done, 1);
+  release();
+  await run;
+  assert.ok(lastModel().level1.length >= 3);
+  active.dispose();
+});
+
+test("at most three section requests run at once", async () => {
+  let running = 0;
+  let peak = 0;
+  let calls = 0;
+  const active = controller(paragraphs(1_200), async () => {
+    calls += 1; running += 1; peak = Math.max(peak, running);
+    await settle();
+    running -= 1;
+    return typoResponse;
+  });
+  await active.analyze();
+  assert.ok(calls >= 5, `${calls} requests`);
+  assert.equal(peak, 3);
+  active.dispose();
+});
+
+test("a failed section does not stop the others and is reported at the end", async () => {
+  let calls = 0;
+  const active = controller(sectionedSource, async (request) => {
+    calls += 1;
+    if (request.chunk?.index === 1) throw new ProcessRunnerError("exit", "The AI client failed.");
+    return typoResponse;
+  });
+  await active.analyze();
+  const model = lastModel();
+  assert.equal(model.state, "ready");
+  assert.equal(model.level1.length, calls - 1);
+  assert.equal(model.error.message, `1 of ${calls} sections could not be analyzed: The AI client failed.`);
+  assert.equal(model.error.action, "analyze");
+  active.dispose();
+});
+
+test("when every section of a multi-section run fails, it ends ready with the counted message and an analyze action", async () => {
+  const active = controller(sectionedSource, async () => { throw new ProcessRunnerError("launch", "The AI client could not be started."); });
+  await active.analyze();
+  const total = posted.map((message) => message.model).find((model) => model?.progress)!.progress.total;
+  assert.equal(lastModel().state, "ready");
+  assert.equal(lastModel().error.message, `${total} of ${total} sections could not be analyzed: The AI client could not be started.`);
+  assert.equal(lastModel().error.action, "analyze");
+  active.dispose();
+});
+
+test("a single-request run that fails still reports the failure itself", async () => {
+  const active = controller("Short document.", async () => { throw new ProcessRunnerError("launch", "The AI client could not be started."); });
+  await active.analyze();
+  assert.equal(lastModel().state, "error");
+  assert.equal(lastModel().error.message, "The AI client could not be started.");
+  assert.equal(lastModel().error.action, "openSettings");
+  active.dispose();
+});
+
+test("a plain-text paragraph above the request limit blocks Analyze with the section message instead of throwing", async () => {
+  const document: any = {
+    uri: { toString: () => "file:///big.txt" }, fileName: "/big.txt", languageId: "plaintext", version: 1,
+    getText: () => `Intro.\n\n${"a".repeat(REVIEW_LIMITS.source + 1)}\n`,
+  };
+  let called = false;
+  const active = new ReviewController(document, "extension" as any, async () => { called = true; return typoResponse; }, () => {}, 2 as any);
+  receive({ type: "ready" });
+  assert.equal(lastModel().canAnalyze, false);
+  await active.analyze();
+  assert.equal(called, false);
+  assert.equal(active.status().error, "Document has a section too large to analyze.");
+  active.dispose();
+});
+
+test("switching plain text to Markdown while re-analyzing drops the old review, and Cancel cannot bring it back", async () => {
+  let hang = false;
+  const document: any = {
+    uri: { toString: () => "file:///notes.txt" }, fileName: "/notes.txt", languageId: "plaintext", version: 1, getText: () => "Teh here",
+  };
+  const active = new ReviewController(document, "extension" as any, async (_request, signal) => {
+    if (!hang) return { title: "Draft", level1: [{ from: "Teh", options: ["The"], note: "Spelling" }], level2: [] };
+    return new Promise((_, reject) => signal.addEventListener("abort", () => reject(new Error("aborted"))));
+  }, () => {}, 2 as any);
+  await active.analyze();
+  receive({ type: "choose", suggestionId: "l1-1", option: 0 });
+  hang = true;
+  const run = active.analyze();
+  await settle();
+  active.retarget({ ...document, languageId: "markdown" });
+  active.cancelAnalysis();
+  await run;
+  assert.equal(lastModel().hasReview, false);
+  assert.equal(active.stagedChoiceCount(), 0);
+  active.dispose();
+});
+
+test("Cancel aborts every pending section, starts no more, and restores the previous review", async () => {
+  const signals: AbortSignal[] = [];
+  let hang = false;
+  const active = controller(sectionedSource, async (request, signal) => {
+    if (!hang) return typoResponse;
+    signals.push(signal);
+    return new Promise((_, reject) => signal.addEventListener("abort", () => reject(new Error("aborted"))));
+  });
+  await active.analyze();
+  const previous = lastModel().level1.length;
+  assert.ok(previous >= 3);
+  hang = true;
+  const run = active.analyze();
+  await settle();
+  assert.equal(signals.length, 3);
+  active.cancelAnalysis();
+  await run;
+  await settle();
+  assert.ok(signals.every((signal) => signal.aborted));
+  assert.equal(signals.length, 3, "no further request starts after Cancel");
+  assert.equal(lastModel().state, "ready");
+  assert.equal(lastModel().level1.length, previous);
+  assert.equal(lastModel().progress, undefined);
+  active.dispose();
+});
+
+test("Cancel on a first run leaves no review behind", async () => {
+  const active = controller(sectionedSource, async (request, signal) => {
+    if (request.chunk?.index === 0) return typoResponse;
+    return new Promise((_, reject) => signal.addEventListener("abort", () => reject(new Error("aborted"))));
+  });
+  const run = active.analyze();
+  await settle();
+  assert.equal(lastModel().level1.length, 1);
+  active.cancelAnalysis();
+  await run;
+  assert.equal(lastModel().state, "empty");
+  assert.deepEqual(lastModel().level1, []);
+  active.dispose();
+});
+
+test("an edit during a run aborts the remaining sections at once and reports that the document changed", async () => {
+  let source = sectionedSource;
+  let version = 1;
+  const document: any = { uri: { toString: () => "file:///big.md" }, fileName: "/big.md", languageId: "markdown", get version() { return version; }, getText: () => source };
+  const signals: AbortSignal[] = [];
+  posted.length = 0;
+  const active = new ReviewController(document, "extension" as any, async (_request, signal) => {
+    signals.push(signal);
+    return new Promise((_, reject) => signal.addEventListener("abort", () => reject(new Error("aborted"))));
+  }, () => {}, 2 as any);
+  const run = active.analyze();
+  await settle();
+  assert.equal(signals.length, 3);
+  source = `x${source}`;
+  version = 2;
+  active.onDocumentChanged({ document, contentChanges: [{ rangeOffset: 0, rangeLength: 0, text: "x" }] } as any);
+  assert.ok(signals.every((signal) => signal.aborted), "every pending request is aborted by the edit itself");
+  await run;
+  await settle();
+  assert.equal(signals.length, 3, "no further request starts after the edit");
+  assert.equal(active.status().state, "error");
+  assert.equal(active.status().error, "Document changed during analysis. Re-analyze to refresh suggestions.");
+  active.dispose();
+});
+
+test("a document that fits in one request is sent whole, as a single request without section data", async () => {
+  const requests: any[] = [];
+  const source = paragraphs(100);
+  assert.ok(source.length < 20_000);
+  const active = controller(source, async (request) => { requests.push(request); return typoResponse; });
+  await active.analyze();
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0].source, source);
+  assert.equal(requests[0].chunk, undefined);
+  assert.equal(lastModel().level1[0].id, "l1-1");
+  assert.equal(posted.some((message) => message.model?.progress), false);
+  active.dispose();
+});
+
+test("a document above 100k can be analysed, but one with a block too big for a request cannot", async () => {
+  const sections = controller(paragraphs(1_800), async () => typoResponse);
+  receive({ type: "ready" });
+  assert.equal(lastModel().canAnalyze, true);
+  assert.ok(lastModel().currentSource.length > REVIEW_LIMITS.source);
+  sections.dispose();
+  let called = false;
+  const blocked = controller(`Intro.\n\n${"a".repeat(REVIEW_LIMITS.source + 1)}\n`, async () => { called = true; return typoResponse; });
+  await blocked.analyze();
+  assert.equal(called, false);
+  assert.equal(blocked.status().error, "Document has a section too large to analyze.");
+  blocked.dispose();
+});
+
+
+// ---- Documents above the request limit: no typing-time complexity prediction (amendment 2) ----
+
+const countingRunner = (requests: string[]) => async (request: { source: string }) => { requests.push(request.source); return { title: "Draft", level1: [], level2: [] }; };
+const realisticParagraph = "Use `client.fetch()` to read the [API reference](https://example.com/api) and **validate** the result before retrying.\n\n";
+
+for (const [count, sections] of [[2_600, 16], [8_300, 50]]) {
+  test(`a realistic ${count}-paragraph Markdown document is admitted and analysed in ${sections} sections without errors`, async () => {
+    const source = realisticParagraph.repeat(count);
+    const requests: string[] = [];
+    const active = controller(source, countingRunner(requests));
+    await active.analyze();
+    assert.equal(lastModel().state, "ready");
+    assert.equal(lastModel().error, undefined);
+    assert.equal(requests.length, sections);
+    assert.equal(requests.join(""), source);
+    active.dispose();
+  });
+}
+
+test("one too-complex section among several is reported as failed while the other sections' suggestions are published", async () => {
+  // Every parse window of this passes the check, but one section holds the delimiters of two windows.
+  const source = straddlingComplexChunkDocument("", "", "Ordinary teh paragraph of plain.\n\n");
+  const active = controller(source, async () => typoResponse);
+  await active.analyze();
+  const model = lastModel();
+  assert.equal(model.state, "ready");
+  assert.match(model.error.message, /^\d+ of \d+ sections could not be analyzed: Markdown is too structurally complex to analyze$/);
+  assert.equal(model.error.action, "analyze");
+  assert.ok(model.level1.length >= 2, `${model.level1.length} suggestions`);
+  active.dispose();
+});
+
+test("a document up to the request limit that starts with a BOM is analysed whenever the whole-document check accepts it", async () => {
+  const source = "\ufeff" + "- item data\n".repeat(2_049);
+  assert.ok(source.length > 20_000 && source.length <= REVIEW_LIMITS.source);
+  const requests: string[] = [];
+  const active = controller(source, countingRunner(requests));
+  await active.analyze();
+  assert.equal(lastModel().state, "ready");
+  assert.equal(lastModel().error, undefined);
+  assert.ok(requests.length >= 1);
+  active.dispose();
+});
+
+// ---- A Markdown document above the request limit with a span that cannot be parsed (amendment 3) ----
+
+const unsegmentableFence = () => `\`\`\`\n${"*abcdefgh* \n".repeat(2_300)}${"inside code\n\n".repeat(300)}teh UNIQUE\n\`\`\`\n\n${paragraphs(1_000)}`;
+const slowGrowth = () => `${"a".repeat(70_000)}${"*abcdefgh* ".repeat(2_100)}\n\n${"Plain paragraph.\n\n".repeat(1_200)}`;
+
+for (const [name, build] of [["a fence the parser cannot read", unsegmentableFence], ["a first block whose window is too complex while it grows", slowGrowth]] as const) {
+  test(`${name} makes the whole run fail with the too-large-or-complex message and no request`, async () => {
+    const source = build();
+    assert.ok(source.length > REVIEW_LIMITS.source && source.length <= REVIEW_LIMITS.document);
+    const requests: string[] = [];
+    const active = controller(source, countingRunner(requests));
+    await active.analyze();
+    assert.equal(requests.length, 0);
+    assert.equal(lastModel().error.message, "Document is too large or complex to analyze.");
+    assert.equal(lastModel().level1.length, 0);
+    active.dispose();
+  });
+}
+
+test("a single parsed block above the request limit still says the section is too large", async () => {
+  const source = `${"word ".repeat(21_000)}\n\n${paragraphs(10)}`;
+  const requests: string[] = [];
+  const active = controller(source, countingRunner(requests));
+  await active.analyze();
+  assert.equal(requests.length, 0);
+  assert.equal(lastModel().error.message, "Document has a section too large to analyze.");
+  active.dispose();
+});
+
+
+test("section prompts and responses protect reference identifiers defined in another section", async () => {
+  const { buildAnalysisPrompt } = require("../src/ai/prompt");
+  const source = "Text [label][id].\n\n" + "Ordinary paragraph.\n\n".repeat(6000) + "[id]: /dest\n";
+  const active = controller(source, async (request) => {
+    if (request.chunk?.index === 0) assert.doesNotMatch(buildAnalysisPrompt(request), /Text \[label\]\[id\]/);
+    return { title: "Draft", level1: [{ from: "[id]", options: ["[other]"], note: "Correction" }], level2: [] };
+  });
+  await active.analyze();
+  assert.equal(lastModel().level1.length, 0);
+  active.dispose();
+});
+
+test("cold large-document analysis yields and cancellation stops segmentation before any request", async () => {
+  const { resetDocumentCache, parseStats } = require("../src/review/chunks");
+  const source = "Ordinary paragraph.\n\n".repeat(45000);
+  resetDocumentCache();
+  let calls = 0;
+  const active = controller(source, async () => { calls += 1; return typoResponse; });
+  const before = parseStats.characters;
+  const run = active.analyze();
+  assert.ok(parseStats.characters - before < 100000, "must return control before parsing the whole document");
+  active.cancelAnalysis();
+  await run;
+  assert.equal(calls, 0);
+  assert.ok(parseStats.characters - before < 100000, "Cancel must not synchronously restart segmentation");
+  active.dispose();
+});
+
+
+test("opening a cold large review yields, then populates tasks and fences asynchronously", async () => {
+  const { resetDocumentCache, parseStats } = require("../src/review/chunks");
+  const source = "- [ ] task\n\n```js\nconst x = 1;\n```\n\n" + "Ordinary paragraph.\n\n".repeat(6000);
+  resetDocumentCache();
+  const before = parseStats.characters;
+  const active = controller(source);
+  receive({ type: "ready" });
+  assert.ok(parseStats.characters - before < 100000);
+  for (let attempt = 0; attempt < 100 && !lastModel().tasks.length; attempt += 1) await new Promise<void>((resolve) => setImmediate(resolve));
+  assert.equal(lastModel().tasks.length, 1);
+  assert.equal(lastModel().fences.length, 1);
+  active.dispose();
+});
+
+test("returning to a large-document review restores controls after another document replaces the cache", async () => {
+  const { resetDocumentCache } = require("../src/review/chunks");
+  resetDocumentCache();
+  const source = (name: string) => `- [ ] ${name}\n\n\`\`\`js\nx\n\`\`\`\n\n` + "Ordinary paragraph.\n\n".repeat(6000);
+  const controls = async () => {
+    for (let attempt = 0; attempt < 100 && !lastModel().tasks.length; attempt += 1) await new Promise<void>((resolve) => setImmediate(resolve));
+    assert.equal(lastModel().tasks.length, 1);
+    assert.equal(lastModel().fences.length, 1);
+  };
+  const first = controller(source("A"));
+  receive({ type: "ready" });
+  await controls();
+  const panel = first.detach()!;
+  const second = controller(source("B"));
+  receive({ type: "ready" });
+  await controls();
+  second.detach();
+  first.attach(panel);
+  await controls();
+  assert.equal(lastModel().tasks[0].label, "A");
+  first.dispose();
+  second.dispose();
 });

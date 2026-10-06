@@ -120,25 +120,25 @@
       "editor/title": [
         {
           "command": "sharpPen.openReview",
-          "when": "editorLangId == markdown || editorLangId == plaintext",
+          "when": "editorLangId =~ /^(markdown|prompt|instructions|chatagent|skill|plaintext)$/ || resourceExtname =~ /^\\.md$/i",
           "group": "navigation@100"
         }
       ],
       "editor/context": [
         {
           "command": "sharpPen.openReview",
-          "when": "editorLangId == markdown || editorLangId == plaintext",
+          "when": "editorLangId =~ /^(markdown|prompt|instructions|chatagent|skill|plaintext)$/ || resourceExtname =~ /^\\.md$/i",
           "group": "navigation@100"
         }
       ],
       "commandPalette": [
         {
           "command": "sharpPen.openReview",
-          "when": "editorLangId == markdown || editorLangId == plaintext"
+          "when": "editorLangId =~ /^(markdown|prompt|instructions|chatagent|skill|plaintext)$/ || resourceExtname =~ /^\\.md$/i"
         },
         {
           "command": "sharpPen.analyze",
-          "when": "editorLangId == markdown || editorLangId == plaintext"
+          "when": "editorLangId =~ /^(markdown|prompt|instructions|chatagent|skill|plaintext)$/ || resourceExtname =~ /^\\.md$/i"
         },
         {
           "command": "sharpPen.zoomIn",

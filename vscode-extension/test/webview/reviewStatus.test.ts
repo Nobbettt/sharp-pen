@@ -20,3 +20,11 @@ test("non-current empty states stay actionable rather than all clear", () => {
 test("applied gets a brief visible status instead of the run-analysis fallback (see R5-10)", () => {
   assert.deepEqual(reviewCountStatus("applied", 1, 0, 0, 0), { text: "Applied", label: "Staged changes applied" });
 });
+
+test("while a document is analysed in sections the status shows how many are done, even with suggestions already listed", () => {
+  const expected = { text: "Analyzed 3 of 7 sections", label: "Analyzed 3 of 7 sections" };
+  assert.deepEqual(reviewCountStatus("analyzing", 1, 0, 0, 0, { done: 3, total: 7 }), expected);
+  assert.deepEqual(reviewCountStatus("analyzing", 1, 4, 0, 4, { done: 3, total: 7 }), expected);
+  assert.deepEqual(reviewCountStatus("analyzing", 1, 0, 0, 0, { done: 0, total: 1 }), { text: "Analyzing…", label: "Analysis in progress" });
+  assert.deepEqual(reviewCountStatus("ready", 1, 4, 1, 4, { done: 7, total: 7 }), { text: "1/4", label: "1 of 4 suggestions accepted" });
+});

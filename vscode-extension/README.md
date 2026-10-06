@@ -111,7 +111,7 @@ again after the CLI is upgraded, and refuses a version that lacks one.
 - sharp-pen is for proofreading and sentence construction—not full rewrites,
   translation, summarization, factual review, or automatic changes while you
   type.
-- Analysis supports documents up to 100,000 characters.
+- Analysis supports documents up to 1,000,000 characters. A document longer than about 20,000 characters is analysed in sections, split at headings and paragraph breaks and never inside a code block, list or table; each section is a separate AI request (at most three at once), so a long document uses more of your CLI's quota. Suggestions appear as each section finishes.
 - Closing the source document also closes its review; if you had staged but
   unapplied choices, sharp-pen warns you how many were discarded.
 

@@ -14,7 +14,7 @@ const response = {
 test("Markdown reconciliation invalidates an oversized source permanently", () => {
   const source = "teh teh";
   const review = createReview(source, { documentVersion: 1, format: "markdown" }, validateAndResolve(source, response, "markdown"));
-  const oversized = "x".repeat(REVIEW_LIMITS.source + 1);
+  const oversized = "x".repeat(REVIEW_LIMITS.document + 1);
   const failed = reconcileSourceChanges(review, { "l1-1": { option: 0 } }, [
     { rangeOffset: 0, rangeLength: source.length, text: oversized },
   ], oversized, 2);
@@ -49,7 +49,7 @@ test("plaintext reconciliation invalidates an oversized source", () => {
   const review = createReview(source, { documentVersion: 1 }, validateAndResolve(source, {
     title: "Draft", level1: [{ from: source, options: ["the"], note: "Typo" }], level2: [],
   }));
-  const oversized = "x".repeat(REVIEW_LIMITS.source + 1);
+  const oversized = "x".repeat(REVIEW_LIMITS.document + 1);
   const result = reconcileSourceChanges(review, { "l1-1": { option: 0 } }, [
     { rangeOffset: 0, rangeLength: source.length, text: oversized },
   ], oversized, 2);

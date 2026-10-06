@@ -444,7 +444,7 @@ const renderMermaid = createMermaidRenderer(() => mermaidLoad ??= new Promise((r
     const accepted = suggestions.filter((s) => s.status === "active" && validOption(s)).length;
     const total = suggestions.filter((s) => s.status === "active").length;
     const hasPending = suggestions.some((s) => s.status === "active" && isPending(s));
-    const count = reviewCountStatus(model.state, level, all().length, accepted, total);
+    const count = reviewCountStatus(model.state, level, all().length, accepted, total, model.progress);
     els.count.value = count.text;
     els.count.textContent = count.text;
     els.count.setAttribute("aria-label", count.label);

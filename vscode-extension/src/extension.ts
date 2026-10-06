@@ -9,8 +9,8 @@ import { SettingsStore, type AiClient } from "./config";
 import type { CliId } from "./ai/types";
 import { ReviewController } from "./reviewController";
 import { SettingsPanel } from "./settingsPanel";
+import { isSupportedDocument } from "./review/languages";
 
-const supportedLanguages = new Set(["markdown", "plaintext"]);
 // Editors for these schemes are the user's own documents; output channels, diffs, and SCM inputs are not.
 const followedSchemes = new Set(["file", "untitled"]);
 
@@ -123,7 +123,7 @@ export function activate(context: vscode.ExtensionContext): SharpPenApi {
       setTimeout(() => {
         if (reviews.get(uri) !== found) return;
         const reopened = vscode.workspace.textDocuments.find((candidate) => candidate.uri.toString() === uri);
-        if (reopened && supportedLanguages.has(reopened.languageId)) return found.retarget(reopened);
+        if (reopened && isSupportedDocument(reopened)) return found.retarget(reopened);
         const staged = found.stagedChoiceCount();
         // The document model can close before its review panel does; there is no hook to keep the review open, so warn what was lost.
         if (staged > 0) {
@@ -138,7 +138,7 @@ export function activate(context: vscode.ExtensionContext): SharpPenApi {
     // Like VS Code's own Markdown preview: an open review follows whichever supported document is focused.
     vscode.window.onDidChangeActiveTextEditor((editor) => {
       const document = editor?.document;
-      if (shown && document && supportedLanguages.has(document.languageId) && followedSchemes.has(document.uri.scheme)) show(document);
+      if (shown && document && isSupportedDocument(document) && followedSchemes.has(document.uri.scheme)) show(document);
     }),
     vscode.window.onDidChangeTextEditorVisibleRanges((event) => controllerFor(event.textEditor.document)?.onEditorVisibleRanges(event)),
     vscode.workspace.onDidGrantWorkspaceTrust(() => {
@@ -163,7 +163,7 @@ function resolveDocument(uri?: vscode.Uri): vscode.TextDocument | undefined {
 
 function activeDocument(uri?: vscode.Uri): vscode.TextDocument | undefined {
   const document = resolveDocument(uri);
-  if (!document || !supportedLanguages.has(document.languageId)) {
+  if (!document || !isSupportedDocument(document)) {
     void vscode.window.showWarningMessage("sharp-pen supports Markdown and plain-text editors.");
     return undefined;
   }
@@ -172,7 +172,7 @@ function activeDocument(uri?: vscode.Uri): vscode.TextDocument | undefined {
 
 function activeDocumentOrUndefined(): vscode.TextDocument | undefined {
   const document = vscode.window.activeTextEditor?.document;
-  return document && supportedLanguages.has(document.languageId) ? document : undefined;
+  return document && isSupportedDocument(document) ? document : undefined;
 }
 
 async function selectModel(settings: SettingsStore, discovery: ModelDiscovery, refresh = false): Promise<CliId | undefined> {

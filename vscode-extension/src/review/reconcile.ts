@@ -1,5 +1,6 @@
 import { type Decision, type Decisions, type Review, type SourceChange, type Suggestion } from "./types";
-import { assertReviewSource, markdownExcludedRanges, rangeTouchesExcluded } from "./validate";
+import { documentExcludedRanges } from "./chunks";
+import { REVIEW_LIMITS, ReviewValidationError, rangeTouchesExcluded } from "./validate";
 
 export interface ReconciliationResult {
   review: Review;
@@ -8,8 +9,10 @@ export interface ReconciliationResult {
 
 function reconciliationExcludedRanges(review: Review, source: string) {
   try {
-    if (review.format === "markdown") return markdownExcludedRanges(source, true);
-    assertReviewSource(source);
+    // Above the per-request limit this parses only the blocks an edit touched (see chunks.ts); re-parsing a
+    // 1,000,000-character document on every keystroke would freeze typing.
+    if (review.format === "markdown") return documentExcludedRanges(source, true);
+    if (source.length > REVIEW_LIMITS.document) throw new ReviewValidationError(`document exceeds ${REVIEW_LIMITS.document} characters`);
     return [];
   } catch {
     return undefined;
