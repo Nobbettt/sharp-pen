@@ -25,6 +25,12 @@ export async function run(): Promise<void> {
     const status = await vscode.commands.executeCommand<{ state: string; error?: string; suggestions: number }>("sharpPen.analyze", document.uri);
     // The open review panel now has focus, so pass the URI as the editor menu does.
     assert.deepEqual(status, { state: "ready", error: undefined, suggestions: 0 });
+    const agent = await vscode.workspace.openTextDocument(resolve(__dirname, "../../../test/fixtures/orchestrator.agent.md"));
+    assert.ok(["markdown", "chatagent"].includes(agent.languageId), `unexpected agent language: ${agent.languageId}`);
+    await vscode.window.showTextDocument(agent);
+    await vscode.commands.executeCommand("sharpPen.openReview", agent.uri);
+    const agentStatus = await vscode.commands.executeCommand("sharpPen.analyze", agent.uri);
+    assert.deepEqual(agentStatus, { state: "ready", error: undefined, suggestions: 0 });
   } finally {
     await fixture.restore();
   }

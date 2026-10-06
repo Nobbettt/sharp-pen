@@ -1309,6 +1309,26 @@ function paragraphs(count: number): string {
 }
 const typoResponse = { title: "Draft", level1: [{ from: "teh", occurrence: 1, options: ["the"], note: "Typo" }], level2: [] };
 const settle = () => new Promise<void>((resolve) => setTimeout(resolve, 5));
+
+test("agent, prompt, instruction and skill documents retain Markdown syntax protection", async () => {
+  for (const languageId of ["chatagent", "prompt", "instructions", "skill"]) {
+    const source = "---\nname: hidden\n---\n\nProse teh.\n\n```js\nhiddenCode\n```\n\n- [ ] task\n";
+    const document: any = { uri: { toString: () => `file:///test.${languageId}.md` }, fileName: `/test.${languageId}.md`, languageId, version: 1, getText: () => source };
+    const active = new ReviewController(document, "extension" as any, async (request) => {
+      assert.equal(request.format, "markdown");
+      return { title: request.title, level1: [{ from: "hiddenCode", options: ["changed"], note: "Code" }, { from: "teh", options: ["the"], note: "Typo" }], level2: [] };
+    }, () => {}, 2 as any);
+    await active.analyze();
+    const model = posted.at(-1).model;
+    assert.equal(model.format, "markdown");
+    assert.equal(model.level1.length, 1);
+    assert.equal(model.level1[0].from, "teh");
+    assert.ok(model.frontMatterEnd > 0);
+    assert.equal(model.tasks.length, 1);
+    assert.equal(model.fences.length, 1);
+    active.dispose();
+  }
+});
 const sectionedSource = paragraphs(650); // about 55k characters, so at least three sections
 
 function lastModel() { return posted.at(-1).model; }

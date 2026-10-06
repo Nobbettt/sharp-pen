@@ -9,8 +9,8 @@ import { SettingsStore, type AiClient } from "./config";
 import type { CliId } from "./ai/types";
 import { ReviewController } from "./reviewController";
 import { SettingsPanel } from "./settingsPanel";
+import { supportedLanguages } from "./review/languages";
 
-const supportedLanguages = new Set(["markdown", "plaintext"]);
 // Editors for these schemes are the user's own documents; output channels, diffs, and SCM inputs are not.
 const followedSchemes = new Set(["file", "untitled"]);
 

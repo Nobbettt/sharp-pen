@@ -7,7 +7,7 @@ import { reconcileSourceChanges } from "./review/reconcile";
 import { markdownTasks, matchesMarkdownTask } from "./review/tasks";
 import { markdownFences } from "./review/fences";
 import { parseMarkdownTree } from "./review/markdownTree";
-import { installedLanguageIds } from "./review/languages";
+import { installedLanguageIds, markdownLanguages } from "./review/languages";
 import type { Chunk } from "./review/chunks";
 import type { Decision, Decisions, Level, Review, ResolvedReview, Suggestion } from "./review/types";
 import { CHUNK_CONCURRENCY, chunkDocumentAsync, documentExcludedRanges, hasDocumentState, quickAnalysisProblem, sectionTooLargeMessage } from "./review/chunks";
@@ -180,7 +180,7 @@ export class ReviewController implements vscode.Disposable {
    * offsets and exclusions were computed for the other format can't carry over, so drop it (see R5-04).
    */
   retarget(document: vscode.TextDocument): void {
-    const format = document.languageId === "markdown" ? "markdown" : "plaintext";
+    const format = markdownLanguages.has(document.languageId) ? "markdown" : "plaintext";
     if ((this.review && this.review.format !== format) || (this.analysis && this.analysis.format !== format)) {
       // A run's Cancel restores the review shown before it, which belongs to the other format: its offsets were
       // checked against the other format's exclusions, so Apply could write into Markdown syntax. Stop the run first.
@@ -523,7 +523,7 @@ export class ReviewController implements vscode.Disposable {
   }
 
   private async setCodeFenceLanguage(intent: Extract<ReviewIntent, { type: "setCodeFenceLanguage" }>): Promise<void> {
-    if (this.sourceEditing || this.applying || this.analysis || !vscode.workspace.isTrusted || this.document.languageId !== "markdown") return this.postState();
+    if (this.sourceEditing || this.applying || this.analysis || !vscode.workspace.isTrusted || !markdownLanguages.has(this.document.languageId)) return this.postState();
     if (intent.languageId && !this.codeFenceLanguages.includes(intent.languageId)) return this.postState();
     const document = this.document;
     const source = document.getText();
@@ -554,7 +554,7 @@ export class ReviewController implements vscode.Disposable {
   }
 
   private async toggleTask(intent: Extract<ReviewIntent, { type: "toggleTask" }>): Promise<void> {
-    if (this.sourceEditing || this.applying || this.analysis || !vscode.workspace.isTrusted || this.document.languageId !== "markdown") return this.postState();
+    if (this.sourceEditing || this.applying || this.analysis || !vscode.workspace.isTrusted || !markdownLanguages.has(this.document.languageId)) return this.postState();
     const document = this.document;
     const source = document.getText();
     if (document.version !== intent.documentVersion || !matchesMarkdownTask(source, intent.offset, !intent.checked)) return this.postState();
@@ -613,7 +613,7 @@ export class ReviewController implements vscode.Disposable {
 
   private snapshot(): AnalysisRequest {
     return {
-      title: path.basename(this.document.fileName), format: this.document.languageId === "markdown" ? "markdown" : "plaintext",
+      title: path.basename(this.document.fileName), format: markdownLanguages.has(this.document.languageId) ? "markdown" : "plaintext",
       source: this.document.getText(), uri: this.document.uri.toString(), documentVersion: this.document.version,
     };
   }
@@ -648,10 +648,10 @@ export class ReviewController implements vscode.Disposable {
     this.typingStatePending = false;
     if (this.disposed || !this.host) return;
     const source = this.review?.currentSource ?? this.document.getText();
-    const format = this.document.languageId === "markdown" ? "markdown" : "plaintext";
+    const format = markdownLanguages.has(this.document.languageId) ? "markdown" : "plaintext";
     const blocker = analysisBlocker(source, format);
     const oversized = blocker !== undefined;
-    let markdown = !oversized && this.document.languageId === "markdown";
+    let markdown = !oversized && markdownLanguages.has(this.document.languageId);
     if (markdown && source.length > REVIEW_LIMITS.source && !hasDocumentState(source)) {
       // Opening a review must yield too: task/fence scans otherwise populate the cache synchronously.
       markdown = false;
@@ -680,12 +680,12 @@ export class ReviewController implements vscode.Disposable {
       state: this.state, applying: this.applying !== undefined,
       canAnalyze: !oversized && vscode.workspace.isTrusted && this.runner !== undefined && !this.sourceEditing && !this.applying && !this.analysis,
       hasReview: this.review !== undefined,
-      canToggleTasks: !oversized && vscode.workspace.isTrusted && this.document.languageId === "markdown" && !this.sourceEditing && !this.applying && !this.analysis,
+      canToggleTasks: !oversized && vscode.workspace.isTrusted && markdownLanguages.has(this.document.languageId) && !this.sourceEditing && !this.applying && !this.analysis,
       tasks: markdown && !this.analysis ? markdownTasks(source, tree) : [],
       fences: markdown && !this.analysis ? markdownFences(source, tree) : [],
       // The webview drops this slice from every rendered pane; markdown-it has no front-matter rule, so
       // rendering it raw turns "---" into a thematic break and the YAML into a bogus heading (see R5-05).
-      frontMatterEnd: oversized || this.document.languageId !== "markdown" ? 0 : (frontMatterRange(source)?.end ?? 0),
+      frontMatterEnd: oversized || !markdownLanguages.has(this.document.languageId) ? 0 : (frontMatterRange(source)?.end ?? 0),
       codeFenceLanguages: this.codeFenceLanguages,
       previewTheme: this.previewTheme,
       ...(this.error ? { error: this.error } : blocker ? { error: { message: blocker } } : {}),

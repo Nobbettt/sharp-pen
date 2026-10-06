@@ -1,6 +1,10 @@
 import * as vscode from "vscode";
 import { highlightableInstalledLanguageIds } from "./fenceHighlight";
 
+// Match VS Code's Markdown preview languages, including agent customizations.
+export const markdownLanguages = new Set(["markdown", "prompt", "instructions", "chatagent", "skill"]);
+export const supportedLanguages = new Set([...markdownLanguages, "plaintext"]);
+
 let cached: Promise<readonly string[]> | undefined;
 
 export function isFenceLanguageId(id: string): boolean {

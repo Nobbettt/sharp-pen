@@ -194,6 +194,29 @@ function markdownDocument(name: string, scheme = "file"): any {
 
 const lastState = (panel: { posted: any[] }) => [...panel.posted].reverse().find((message) => message.type === "state")?.model;
 
+test("Markdown variants show review commands and follow the active editor as Markdown", async () => {
+  const manifest = JSON.parse(readFileSync("package.json", "utf8"));
+  for (const [name, languageId] of [["notes.v2.md", "markdown"], ["orchestrator.agent.md", "chatagent"], ["review.prompt.md", "prompt"], ["style.instructions.md", "instructions"], ["SKILL.md", "skill"]]) {
+    const { panels, commandHandlers, setDocuments, focus } = activateExtension();
+    const document = { ...markdownDocument(name), languageId };
+    setDocuments([document]);
+    commandHandlers["sharpPen.openReview"](document.uri);
+    assert.equal(panels.length, 1);
+    panels[0].receive({ type: "ready" });
+    assert.equal(lastState(panels[0]).format, "markdown");
+    const next = { ...document, uri: { scheme: "file", toString: () => `file:///next-${name}` } };
+    setDocuments([document, next]);
+    focus(next);
+    assert.equal(lastState(panels[0]).documentId, next.uri.toString());
+    for (const location of ["editor/title", "editor/context", "commandPalette"]) {
+      const entry = manifest.contributes.menus[location].find((item: any) => item.command === "sharpPen.openReview");
+      const pattern = entry.when.match(/\/(.*)\//)[1];
+      assert.ok(new RegExp(pattern).test(languageId), `${location} excludes ${languageId}`);
+    }
+    panels[0].onDisposeListener?.();
+  }
+});
+
 test("one review panel follows the focused Markdown document and routes webview messages to it", async () => {
   const { panels, commandHandlers, focus, setDocuments } = activateExtension();
   const [a, b] = [markdownDocument("a.md"), markdownDocument("b.md")];
