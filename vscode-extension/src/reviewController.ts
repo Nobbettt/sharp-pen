@@ -658,10 +658,10 @@ export class ReviewController implements vscode.Disposable {
       if (!this.analysis && this.preparingSource !== source) {
         this.preparingSource = source;
         const stopped = () => this.disposed || this.document.getText() !== source || this.analysis !== undefined;
-        void chunkDocumentAsync(source, "markdown", stopped).then((chunks) => {
-          if (!chunks && this.preparingSource === source) this.preparingSource = undefined;
+        void chunkDocumentAsync(source, "markdown", stopped).then(() => {
+          if (this.preparingSource === source) this.preparingSource = undefined;
           if (!stopped()) this.postState();
-        }, () => undefined);
+        }, () => { if (this.preparingSource === source) this.preparingSource = undefined; });
       }
     }
     const tree = markdown ? parseMarkdownTree(source) : undefined;

@@ -48,7 +48,7 @@ const WINDOW_EDIT = 4_000;
 /** For tests: how many characters have gone through the Markdown parser, to show an edit re-reads little. */
 export const parseStats = { characters: 0 };
 
-interface MdNode { type?: string; depth?: number; value?: string; identifier?: string; children?: MdNode[]; position?: { start: { offset: number } } }
+interface MdNode { type?: string; depth?: number; value?: string; referenceLabel?: string; children?: MdNode[]; position?: { start: { offset: number } } }
 
 function plainText(node: MdNode): string {
   if (typeof node.value === "string") return node.value;
@@ -139,7 +139,7 @@ function scanWindow(source: string, pos: number, size: number, definitions = "")
     const foundDefinitions: string[] = [];
     const collect = (node: MdNode): void => {
       const start = node.position?.start.offset;
-      if (node.type === "definition" && node.identifier && start !== undefined && start + shift < next && start + shift >= frontMatterEnd) foundDefinitions.push(`[${node.identifier}]: /sharp-pen-reference`);
+      if (node.type === "definition" && node.referenceLabel && start !== undefined && start + shift < next && start + shift >= frontMatterEnd) foundDefinitions.push(`[${node.referenceLabel}]: /sharp-pen-reference`);
       for (const child of node.children ?? []) collect(child);
     };
     collect(tree);
@@ -269,7 +269,7 @@ function* buildState(source: string, previous?: DocState, definitions = ""): Gen
     if ((blocks[index + 1]?.start ?? source.length) - blocks[index].start > REVIEW_LIMITS.source) throw new ReviewValidationError(sectionTooLargeMessage);
   }
   // Definitions apply across windows. A second pass resolves references using the complete definition set.
-  // ponytail: normalized definition labels are appended only to windows with brackets; a shared tokenizer context if definition-heavy documents become slow.
+  // ponytail: definition labels are appended only to windows with brackets; a shared tokenizer context if definition-heavy documents become slow.
   if (!previous && !definitions && foundDefinitions.length) {
     yield;
     return yield* buildState(source, undefined, foundDefinitions.join("\n\n"));

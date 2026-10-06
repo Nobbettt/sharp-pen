@@ -560,3 +560,21 @@ test("reference definitions in block quotes retain context across windows", () =
   const start = source.indexOf("[id]");
   assert.ok(documentExcludedRanges(source).some((range) => range.start <= start && range.end >= start + 4));
 });
+
+test("reference labels keep their original Unicode, escapes, entities and line breaks across windows", () => {
+  for (const label of ["İ".repeat(500), "İ".repeat(999), "a\\]b &amp; c", "first\nsecond"]) {
+    const from = `[${label}]`;
+    const source = `Text [label]${from}.\n\n` + "Ordinary paragraph.\n\n".repeat(6000) + `${from}: /dest\n`;
+    resetDocumentCache();
+    const ranges = documentExcludedRanges(source);
+    const start = source.indexOf(from);
+    assert.ok(ranges.some((range) => range.start <= start && range.end >= start + from.length));
+    const chunk = chunkDocument(source, "markdown")[0];
+    const localRanges = ranges.filter((range) => range.start < chunk.end).map((range) => ({ start: range.start, end: Math.min(range.end, chunk.end) }));
+    const response = { title: "T", level1: [{ from, options: ["[other]"], note: "Correction" }], level2: [] };
+    assert.equal(validateAndResolve(source.slice(0, chunk.end), response, "markdown", "T", true, localRanges).level1.length, 0);
+    const suggestion = { id: "a", level: 1 as const, start, end: start + from.length, from, options: ["[other]"], note: "Correction", status: "active" as const };
+    const review = createReview(source, { documentVersion: 1, format: "markdown" }, { title: "T", level1: [suggestion], level2: [], skipped: 0 });
+    assert.deepEqual(prepareApply(review, { a: { option: 0 } }, source, 1).edits, []);
+  }
+});

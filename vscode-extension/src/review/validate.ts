@@ -23,6 +23,11 @@ const gfmMdastExtensions: any[] = [
   require("mdast-util-gfm-strikethrough").fromMarkdown,
   require("mdast-util-gfm-table").fromMarkdown,
   require("mdast-util-gfm-task-list-item").fromMarkdown,
+  { enter: { definitionLabelString(this: any, token: any) {
+    // Keep the parser's original label: lowercasing can expand it beyond CommonMark's 999-character limit.
+    this.stack[this.stack.length - 1].referenceLabel = this.sliceSerialize(token);
+    this.buffer();
+  } } },
 ];
 const literalUrlPattern = /\bhttps?:\/\/[^\s<>]+|\bwww\.[^\s<>]+/gi;
 

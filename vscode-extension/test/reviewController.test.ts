@@ -1661,3 +1661,27 @@ test("opening a cold large review yields, then populates tasks and fences asynch
   assert.equal(lastModel().fences.length, 1);
   active.dispose();
 });
+
+test("returning to a large-document review restores controls after another document replaces the cache", async () => {
+  const { resetDocumentCache } = require("../src/review/chunks");
+  resetDocumentCache();
+  const source = (name: string) => `- [ ] ${name}\n\n\`\`\`js\nx\n\`\`\`\n\n` + "Ordinary paragraph.\n\n".repeat(6000);
+  const controls = async () => {
+    for (let attempt = 0; attempt < 100 && !lastModel().tasks.length; attempt += 1) await new Promise<void>((resolve) => setImmediate(resolve));
+    assert.equal(lastModel().tasks.length, 1);
+    assert.equal(lastModel().fences.length, 1);
+  };
+  const first = controller(source("A"));
+  receive({ type: "ready" });
+  await controls();
+  const panel = first.detach()!;
+  const second = controller(source("B"));
+  receive({ type: "ready" });
+  await controls();
+  second.detach();
+  first.attach(panel);
+  await controls();
+  assert.equal(lastModel().tasks[0].label, "A");
+  first.dispose();
+  second.dispose();
+});
