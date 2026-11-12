@@ -5,6 +5,8 @@ import { ProcessRunnerError } from "./processRunner";
 import { buildAnalysisPrompt } from "./prompt";
 import type { CliAdapter } from "./types";
 
+const retryMalformed = new Set(["copilot", "vscode-lm"]);
+
 export interface AnalysisServiceDependencies {
   settings: Pick<SettingsStore, "getConfig" | "getModel">;
   select(client: ReturnType<SettingsStore["getConfig"]>["aiClient"], signal?: AbortSignal): Promise<CliAdapter>;
@@ -19,19 +21,20 @@ export function createAnalysisRunner(dependencies: AnalysisServiceDependencies):
     const model = dependencies.settings.getModel(adapter.id);
     const analyze = async (input: string): Promise<unknown> => {
       const value = parseAgentResponse(await adapter.analyze(input, model ? { model } : {}, signal));
-      if (adapter.id === "copilot") validateAgentResponse(value, request.title);
+      if (retryMalformed.has(adapter.id)) validateAgentResponse(value, request.title);
       return value;
     };
     try {
       return await analyze(prompt);
     } catch (error) {
-      if (adapter.id !== "copilot" || !(error instanceof ReviewValidationError)) throw error;
+      if (!retryMalformed.has(adapter.id) || !(error instanceof ReviewValidationError)) throw error;
     }
     try {
       return await analyze(`${prompt}\nFinal reminder: return only the required JSON object with title, level1, and level2.`);
     } catch (error) {
       if (!(error instanceof ReviewValidationError)) throw error;
-      throw new ProcessRunnerError("exit", "GitHub Copilot returned a response that sharp-pen could not read. Retry, or choose another model.");
+      const client = adapter.id === "copilot" ? "GitHub Copilot" : "The VS Code language model";
+      throw new ProcessRunnerError("exit", `${client} returned a response that sharp-pen could not read. Retry, or choose another model.`);
     }
   };
 }

@@ -1,7 +1,7 @@
 {
   "name": "sharp-pen",
   "displayName": "sharp-pen",
-  "description": "Review Markdown and plain-text writing with your local AI CLI.",
+  "description": "Review Markdown and plain-text writing with your AI client.",
   "version": "0.4.0",
   "publisher": "nobbettt",
   "license": "MIT",
@@ -10,7 +10,7 @@
     "url": "https://github.com/Nobbettt/sharp-pen.git"
   },
   "engines": {
-    "vscode": "^1.85.0"
+    "vscode": "^1.90.0"
   },
   "extensionKind": [
     "workspace"
@@ -162,7 +162,7 @@
     },
     "virtualWorkspaces": {
       "supported": false,
-      "description": "sharp-pen requires a Node-based workspace extension host to run a local AI CLI."
+      "description": "sharp-pen requires a Node-based desktop workspace extension host."
     }
   },
   "scripts": {
@@ -187,7 +187,7 @@
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
-    "@types/vscode": "1.85.0",
+    "@types/vscode": "1.90.0",
     "@vscode/test-electron": "^3.1.0",
     "@vscode/vsce": "^3.6.1",
     "esbuild": "0.28.2",

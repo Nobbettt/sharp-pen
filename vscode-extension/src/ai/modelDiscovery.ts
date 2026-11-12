@@ -1,4 +1,5 @@
-import type { CliId } from "./types";
+import type { ClientId } from "./types";
+import { createVscodeLmApi, type VscodeLmApi } from "./adapters/vscodeLm";
 import { spawnProcessTree } from "./processTree";
 import { runProcess } from "./processRunner";
 import { isModelId } from "./modelId";
@@ -24,17 +25,17 @@ export function codexModelListParams(cursor?: string): Record<string, unknown> {
 }
 
 export interface ModelDiscoverySource {
-  (client: CliId, extensionVersion: string, signal?: AbortSignal): Promise<readonly string[]>;
+  (client: ClientId, extensionVersion: string, signal?: AbortSignal): Promise<readonly string[]>;
 }
 
 /** Caches only successful lists for this extension-host session. */
 export class ModelDiscovery {
-  private readonly cache = new Map<CliId, readonly string[]>();
+  private readonly cache = new Map<ClientId, readonly string[]>();
   private readonly aborts = new Set<AbortController>();
 
   constructor(private readonly source: ModelDiscoverySource = discoverModels, private readonly extensionVersion = "0.0.0") {}
 
-  async list(client: CliId, refresh = false, signal?: AbortSignal): Promise<readonly string[]> {
+  async list(client: ClientId, refresh = false, signal?: AbortSignal): Promise<readonly string[]> {
     if (signal?.aborted) throw new Error("Model discovery was cancelled.");
     if (!refresh && this.cache.has(client)) return this.cache.get(client)!;
     const abort = new AbortController();
@@ -51,7 +52,7 @@ export class ModelDiscovery {
     }
   }
 
-  clear(client?: CliId): void {
+  clear(client?: ClientId): void {
     if (client) this.cache.delete(client); else this.cache.clear();
   }
 
@@ -62,7 +63,7 @@ export class ModelDiscovery {
   }
 }
 
-export async function discoverModels(client: CliId, extensionVersion = "0.0.0", signal?: AbortSignal): Promise<readonly string[]> {
+export async function discoverModels(client: ClientId, extensionVersion = "0.0.0", signal?: AbortSignal): Promise<readonly string[]> {
   switch (client) {
     case "codex": return discoverCodexModels(extensionVersion, signal);
     case "opencode": {
@@ -74,7 +75,15 @@ export async function discoverModels(client: CliId, extensionVersion = "0.0.0", 
     // These clients expose account-aware pickers only in their TUI. Never scrape it.
     case "claude": return ["sonnet", "opus", "haiku"];
     case "copilot": return ["auto"];
+    case "vscode-lm": return discoverVscodeLmModels(createVscodeLmApi(), signal);
   }
+}
+
+export async function discoverVscodeLmModels(api: Pick<VscodeLmApi, "selectChatModels">, signal?: AbortSignal): Promise<readonly string[]> {
+  if (signal?.aborted) throw new Error("Model discovery was cancelled.");
+  const models = await api.selectChatModels();
+  if (signal?.aborted) throw new Error("Model discovery was cancelled.");
+  return unique(models.map(({ id }) => id));
 }
 
 export function parseOpenCodeModels(stdout: string): string[] {

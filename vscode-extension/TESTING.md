@@ -5,10 +5,10 @@
 | Check | Where |
 |---|---|
 | Unit tests (`npm test`), fake CLIs incl. Windows `.cmd` shims and process-tree cancellation | Linux, macOS, Windows, each on x64 and arm64 |
-| Unit tests on Node 18.15 (the Node in VS Code 1.85) | Linux x64 |
-| Smoke test in a real VS Code (`npm run test:integration`): activates, opens the review panel, runs one analysis through a spawned fake CLI | Same six runners on VS Code stable; Linux, macOS and Windows x64 on VS Code 1.85.0 |
+| Unit tests on Node 20.9 (the Node in VS Code 1.90) | Linux x64 |
+| Smoke test in a real VS Code (`npm run test:integration`): activates, opens the review panel, runs one analysis through a spawned fake CLI | Same six runners on VS Code stable; Linux, macOS and Windows x64 on VS Code 1.90.0 |
 
-Run the smoke test locally with `npm run test:integration`. Set `VSCODE_TEST_VERSION=1.85.0` for the minimum version. On Linux without a display, prefix the command with `xvfb-run -a`.
+Run the smoke test locally with `npm run test:integration`. Set `VSCODE_TEST_VERSION=1.90.0` for the minimum version. On Linux without a display, prefix the command with `xvfb-run -a`.
 
 ## Real AI CLIs: `npm run test:ai`
 

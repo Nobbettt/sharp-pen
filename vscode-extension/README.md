@@ -77,10 +77,11 @@ Level 2 sentence-construction suggestion.
 
 ## AI clients and models
 
-sharp-pen uses an AI CLI you have already installed and signed in to. It
-supports **Claude Code**, **Codex**, **GitHub Copilot CLI**, and **OpenCode**. With **Auto**,
+sharp-pen uses an AI client you have already installed and signed in to. It
+supports **Claude Code**, **Codex**, **GitHub Copilot CLI**, **OpenCode**, and
+**VS Code language models** through GitHub Copilot Chat. With **Auto**,
 it selects the first available client in this order: Claude Code, Codex,
-GitHub Copilot CLI, then OpenCode. A failed analysis is reported; sharp-pen never silently
+GitHub Copilot CLI, OpenCode, then VS Code language models. A failed analysis is reported; sharp-pen never silently
 sends your document to another provider.
 
 Choose a client and preview theme from **sharp-pen: Open Settings**. Model
@@ -102,10 +103,11 @@ again after the CLI is upgraded, and refuses a version that lacks one.
 
 ## Requirements and limitations
 
-- Desktop VS Code 1.85 or later and a trusted workspace.
+- Desktop VS Code 1.90 or later and a trusted workspace.
 - A supported CLI installed and authenticated where the workspace extension host
-  runs. For SSH, WSL, Dev Containers, and Codespaces desktop sessions, that is
-  usually the remote host or container.
+  runs, or GitHub Copilot Chat installed and signed in for VS Code language models.
+  For SSH, WSL, Dev Containers, and Codespaces desktop sessions, a CLI usually
+  needs to be on the remote host or container.
 - Markdown and VS Code's `plaintext` language mode only. VS Code for the Web
   cannot run the required local CLI.
 - sharp-pen is for proofreading and sentence construction—not full rewrites,
@@ -118,7 +120,7 @@ again after the CLI is upgraded, and refuses a version that lacks one.
 ## Privacy and security
 
 sharp-pen owns no API keys, account, service, analytics, or telemetry. It sends
-the document snapshot to the local CLI you select; that CLI and its provider own
+the document snapshot to the AI client you select; that client and its provider own
 authentication, storage, and any provider transmission. sharp-pen does not read
 or manage provider credentials. See the [privacy policy](https://github.com/Nobbettt/sharp-pen/blob/main/PRIVACY.md)
 for details.

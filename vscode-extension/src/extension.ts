@@ -6,7 +6,7 @@ import { isModelId } from "./ai/modelId";
 import { modelPickerOptions } from "./ai/modelScope";
 import { selectAdapter } from "./ai/adapters";
 import { SettingsStore, type AiClient } from "./config";
-import type { CliId } from "./ai/types";
+import type { ClientId } from "./ai/types";
 import { ReviewController } from "./reviewController";
 import { SettingsPanel } from "./settingsPanel";
 import { isSupportedDocument } from "./review/languages";
@@ -175,7 +175,7 @@ function activeDocumentOrUndefined(): vscode.TextDocument | undefined {
   return document && isSupportedDocument(document) ? document : undefined;
 }
 
-async function selectModel(settings: SettingsStore, discovery: ModelDiscovery, refresh = false): Promise<CliId | undefined> {
+async function selectModel(settings: SettingsStore, discovery: ModelDiscovery, refresh = false): Promise<ClientId | undefined> {
   if (!workspaceTrusted()) return;
   const requested = settings.getConfig().aiClient;
   const abort = new AbortController();
@@ -183,7 +183,7 @@ async function selectModel(settings: SettingsStore, discovery: ModelDiscovery, r
   // notification closes: keeping it open while the user picks leaves a stale spinner on screen.
   const found = await vscode.window.withProgress(
     { location: vscode.ProgressLocation.Notification, title: "sharp-pen is finding available models", cancellable: true },
-    async (_progress, token): Promise<{ client: CliId; models: readonly string[] } | undefined> => {
+    async (_progress, token): Promise<{ client: ClientId; models: readonly string[] } | undefined> => {
       token.onCancellationRequested(() => abort.abort());
       let client: Awaited<ReturnType<typeof selectAdapter>>;
       try {
@@ -204,7 +204,7 @@ async function selectModel(settings: SettingsStore, discovery: ModelDiscovery, r
   return found ? showModelPicker(settings, discovery, found.client, found.models) : undefined;
 }
 
-async function showModelPicker(settings: SettingsStore, discovery: ModelDiscovery, client: CliId, models: readonly string[]): Promise<CliId | undefined> {
+async function showModelPicker(settings: SettingsStore, discovery: ModelDiscovery, client: ClientId, models: readonly string[]): Promise<ClientId | undefined> {
   const currentModel = settings.getModel(client);
   const selected = await vscode.window.showQuickPick(
     modelPickerOptions(currentModel, models, manualGuidance(client)),
@@ -226,8 +226,9 @@ async function showModelPicker(settings: SettingsStore, discovery: ModelDiscover
   return client;
 }
 
-function manualGuidance(client: CliId): string {
+function manualGuidance(client: ClientId): string {
   if (client === "claude" || client === "copilot") return `Use ${client === "claude" ? "Claude Code" : "GitHub Copilot CLI"}'s /model picker to browse account models, then enter its ID.`;
+  if (client === "vscode-lm") return "Choose a model made available by GitHub Copilot Chat";
   return "Use a model ID not listed here";
 }
 
@@ -237,6 +238,6 @@ function workspaceTrusted(): boolean {
   return false;
 }
 
-function clientLabel(id: AiClient | CliId): string {
-  return ({ auto: "Auto", claude: "Claude Code", codex: "Codex", copilot: "GitHub Copilot", opencode: "OpenCode" })[id];
+function clientLabel(id: AiClient | ClientId): string {
+  return ({ auto: "Auto", claude: "Claude Code", codex: "Codex", copilot: "GitHub Copilot", opencode: "OpenCode", "vscode-lm": "VS Code language models" })[id];
 }

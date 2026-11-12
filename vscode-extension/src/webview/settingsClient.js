@@ -5,7 +5,7 @@ const els = {
   client: el("client"), theme: el("theme"), model: el("model"), models: el("models"),
   saveModel: el("save-model"), refreshModels: el("refresh-models"), modelProvider: el("model-provider"), manualModel: el("manual-model"), status: el("status"),
 };
-const label = { claude: "Claude Code", codex: "Codex", copilot: "GitHub Copilot", opencode: "OpenCode" };
+const label = { claude: "Claude Code", codex: "Codex", copilot: "GitHub Copilot", opencode: "OpenCode", "vscode-lm": "VS Code language models" };
 const otherModel = "__sharp_pen_other_model__";
 let state;
 let showingManual = false;

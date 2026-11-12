@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Add VS Code language models as an AI client for users signed in to GitHub Copilot Chat.
+
 ## 0.4.0
 
 - Recognize VS Code's agent, prompt, instruction and skill Markdown language modes, or any filename ending in `.md` (case-insensitive), so the review button and Markdown handling remain available.

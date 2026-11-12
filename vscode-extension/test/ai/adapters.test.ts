@@ -10,6 +10,7 @@ import { ProcessRunnerError } from "../../src/ai/processRunner";
 import { extractCopilotFinalText, extractFinalText, probeTimeoutMs } from "../../src/ai/adapters/shared";
 import { cliFixture } from "./cliFixture";
 import { copilot185Output } from "./copilot-1.0.85.fixture";
+import type { CliAdapter } from "../../src/ai/types";
 
 const help = [
   "--print", "--output-format", "--restricted", "--safe-mode", "--strict-mcp-config", "--permission-mode", "--permission-prompts", "--no-session-persistence", "--disable-slash-commands", "--no-chrome", "--tools", "--json-schema",
@@ -26,7 +27,7 @@ async function fixtures() {
 test("adapters probe fixed names in product priority order", { concurrency: false }, async () => {
   const setup = await fixtures();
   try {
-    assert.deepEqual(adapters.map((adapter) => adapter.id), ["claude", "codex", "copilot", "opencode"]);
+    assert.deepEqual(adapters.map((adapter) => adapter.id), ["claude", "codex", "copilot", "opencode", "vscode-lm"]);
     assert.equal((await selectAdapter("auto")).id, "claude");
     const probe = await new ClaudeAdapter().probe();
     assert.equal(probe.available, true);
@@ -42,6 +43,23 @@ test("explicit OpenCode selection probes and resolves the adapter", { concurrenc
     assert.equal((await selectAdapter("opencode")).id, "opencode");
   } finally {
     await setup.restore();
+  }
+});
+
+test("Auto chooses VS Code language models only after every CLI", { concurrency: false }, async () => {
+  const probes = adapters.map((adapter) => adapter.probe);
+  try {
+    for (const adapter of adapters) {
+      (adapter as { probe: CliAdapter["probe"] }).probe = async () => ({
+        available: adapter.id === "vscode-lm",
+        capabilities: new Set(),
+      });
+    }
+    assert.equal((await selectAdapter("auto")).id, "vscode-lm");
+    (adapters[2] as { probe: CliAdapter["probe"] }).probe = async () => ({ available: true, capabilities: new Set() });
+    assert.equal((await selectAdapter("auto")).id, "copilot");
+  } finally {
+    adapters.forEach((adapter, index) => { (adapter as { probe: CliAdapter["probe"] }).probe = probes[index]; });
   }
 });
 
