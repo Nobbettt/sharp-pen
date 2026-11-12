@@ -2,7 +2,7 @@ import * as vscode from "vscode";
 import { selectAdapter } from "./ai/adapters";
 import { ModelDiscovery } from "./ai/modelDiscovery";
 import { isModelId } from "./ai/modelId";
-import type { CliId } from "./ai/types";
+import type { ClientId } from "./ai/types";
 import { isAiClient, isPreviewTheme, SettingsStore, type AiClient } from "./config";
 import { settingsWebviewHtml } from "./webview/settingsWebview";
 
@@ -19,7 +19,7 @@ export class SettingsPanel implements vscode.Disposable {
   readonly panel: vscode.WebviewPanel;
   private disposed = false;
   private probed = false;
-  private modelClient: CliId | undefined;
+  private modelClient: ClientId | undefined;
   private models: readonly string[] = [];
   private status = "";
   private refreshAbort: AbortController | undefined;
@@ -50,7 +50,7 @@ export class SettingsPanel implements vscode.Disposable {
     this.panel.reveal(vscode.ViewColumn.Active);
   }
 
-  sync(modelClient?: CliId): void {
+  sync(modelClient?: ClientId): void {
     const expected = directClient(this.settings.getConfig().aiClient) ?? this.modelClient;
     if (modelClient && expected && modelClient !== expected) return this.postState();
     if (modelClient && modelClient !== this.modelClient) {
@@ -143,7 +143,7 @@ export class SettingsPanel implements vscode.Disposable {
     this.refreshAbort?.abort();
     const abort = new AbortController();
     this.refreshAbort = abort;
-    let resolvedClient: CliId | undefined;
+    let resolvedClient: ClientId | undefined;
     try {
       const client = await selectAdapter(requested, abort.signal);
       if (!this.current(operation, requested) || abort.signal.aborted) return;
@@ -221,10 +221,10 @@ function settingsIntent(value: unknown): SettingsIntent | undefined {
   return undefined;
 }
 
-function directClient(client: AiClient): CliId | undefined {
+function directClient(client: AiClient): ClientId | undefined {
   return client === "auto" ? undefined : client;
 }
 
-function clientLabel(client: CliId): string {
-  return ({ claude: "Claude Code", codex: "Codex", copilot: "GitHub Copilot", opencode: "OpenCode" })[client];
+function clientLabel(client: ClientId): string {
+  return ({ claude: "Claude Code", codex: "Codex", copilot: "GitHub Copilot", opencode: "OpenCode", "vscode-lm": "VS Code language models" })[client];
 }

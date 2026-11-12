@@ -1,7 +1,7 @@
 import { isModelId } from "./ai/modelId";
-import type { CliId } from "./ai/types";
+import type { ClientId } from "./ai/types";
 
-export const aiClients = ["auto", "claude", "codex", "copilot", "opencode"] as const;
+export const aiClients = ["auto", "claude", "codex", "copilot", "opencode", "vscode-lm"] as const;
 
 export type AiClient = (typeof aiClients)[number];
 
@@ -36,8 +36,8 @@ export class SettingsStore {
     };
   }
 
-  getModel(client: CliId): string {
-    const models = this.state.get<Partial<Record<CliId, string>>>(keys.models);
+  getModel(client: ClientId): string {
+    const models = this.state.get<Partial<Record<ClientId, string>>>(keys.models);
     const model = models?.[client]?.trim() ?? "";
     return isModelId(model) ? model : "";
   }
@@ -50,10 +50,10 @@ export class SettingsStore {
     await this.state.update(keys.previewTheme, theme);
   }
 
-  async setModel(client: CliId, model: string): Promise<void> {
+  async setModel(client: ClientId, model: string): Promise<void> {
     const value = model.trim();
     if (value && !isModelId(value)) throw new Error("Model ID contains unsupported characters.");
-    const models = { ...(this.state.get<Partial<Record<CliId, string>>>(keys.models) ?? {}) };
+    const models = { ...(this.state.get<Partial<Record<ClientId, string>>>(keys.models) ?? {}) };
     if (value) models[client] = value; else delete models[client];
     await this.state.update(keys.models, models);
   }

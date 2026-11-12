@@ -10,6 +10,7 @@ import {
   codexInitializedNotification,
   codexModelListParams,
   discoverModels,
+  discoverVscodeLmModels,
   parseCodexModels,
   parseOpenCodeModels,
 } from "../../src/ai/modelDiscovery";
@@ -48,6 +49,12 @@ test("model discovery parsers keep only supported visible model IDs", () => {
   assert.deepEqual(parseCodexModels({ data: [
     { id: "gpt-5" }, { model: "gpt-5-mini" }, { id: "hidden", hidden: true }, { id: "bad model" }, { id: "gpt-5" },
   ] }), ["gpt-5", "gpt-5-mini"]);
+});
+
+test("VS Code language model discovery keeps supported model IDs", async () => {
+  assert.deepEqual(await discoverVscodeLmModels({ async selectChatModels() {
+    return [{ id: "copilot/gpt-5" }, { id: "bad model" }, { id: "copilot/gpt-5" }, { id: "claude-3.5" }] as any;
+  } }), ["copilot/gpt-5", "claude-3.5"]);
 });
 
 test("OpenCode model discovery parses its bounded plain model list", { concurrency: false }, async () => {

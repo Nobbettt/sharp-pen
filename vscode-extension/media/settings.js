@@ -15,7 +15,7 @@
     manualModel: el("manual-model"),
     status: el("status")
   };
-  var label = { claude: "Claude Code", codex: "Codex", copilot: "GitHub Copilot", opencode: "OpenCode" };
+  var label = { claude: "Claude Code", codex: "Codex", copilot: "GitHub Copilot", opencode: "OpenCode", "vscode-lm": "VS Code language models" };
   var otherModel = "__sharp_pen_other_model__";
   var state;
   var showingManual = false;

@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-const { isPreviewTheme, previewTheme, SettingsStore } = require("../src/config") as typeof import("../src/config");
+const { isAiClient, isPreviewTheme, previewTheme, SettingsStore } = require("../src/config") as typeof import("../src/config");
+
+test("VS Code language models is a valid AI client", () => {
+  assert.equal(isAiClient("vscode-lm"), true);
+});
 
 test("preview theme accepts its enum and defaults invalid values to light", () => {
   assert.equal(isPreviewTheme("light"), true);
@@ -18,8 +22,10 @@ test("settings store keeps models separate for every provider", async () => {
   await settings.setPreviewTheme("dark");
   await settings.setModel("claude", "sonnet");
   await settings.setModel("codex", "gpt-5");
+  await settings.setModel("vscode-lm", "copilot/gpt-5");
   assert.deepEqual(settings.getConfig(), { aiClient: "codex", previewTheme: "dark" });
   assert.equal(settings.getModel("claude"), "sonnet");
   assert.equal(settings.getModel("codex"), "gpt-5");
   assert.equal(settings.getModel("copilot"), "");
+  assert.equal(settings.getModel("vscode-lm"), "copilot/gpt-5");
 });

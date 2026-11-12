@@ -69,6 +69,21 @@ test("Copilot reports a safe specific error after two malformed responses", asyn
   );
 });
 
+test("VS Code language models retry malformed responses and name the client on failure", async () => {
+  let calls = 0;
+  const adapter: CliAdapter = {
+    id: "vscode-lm",
+    async probe() { return { available: true, capabilities: new Set() }; },
+    async analyze() { calls += 1; return '{"message":"wrong contract"}'; },
+  };
+  const runner = createAnalysisRunner({ settings: { getConfig: () => ({ aiClient: "vscode-lm", previewTheme: "light" }), getModel: () => "" }, async select() { return adapter; } });
+  await assert.rejects(
+    runner({ title: "Draft", format: "plaintext", source: "Draft", uri: "file:///draft", documentVersion: 1 }, new AbortController().signal),
+    (error: unknown) => error instanceof ProcessRunnerError && /The VS Code language model returned/.test(error.message),
+  );
+  assert.equal(calls, 2);
+});
+
 test("provider-scoped models never cross to a resolved auto client", async () => {
   const models: Array<string | undefined> = [];
   const adapter = (id: CliAdapter["id"]): CliAdapter => ({
